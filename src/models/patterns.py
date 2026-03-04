@@ -8,6 +8,7 @@ every market the system tracks.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -26,33 +27,52 @@ class PatternStat:
     percentage: float
 
     @property
+    def wilson_lower_bound(self) -> float:
+        """
+        Calculate the Wilson score interval lower bound (95% confidence).
+        This strongly penalizes small sample sizes, preventing 1/1 (100%) from
+        ranking higher than 18/20 (90%).
+        """
+        if self.total == 0:
+            return 0.0
+        
+        z = 1.96  # 95% confidence
+        p = self.count / self.total
+        n = self.total
+        
+        denominator = 1 + z**2 / n
+        center = p + z**2 / (2 * n)
+        spread = z * math.sqrt((p * (1 - p) + z**2 / (4 * n)) / n)
+        
+        bound = (center - spread) / denominator
+        return bound * 100.0
+
+    @property
     def confidence(self) -> str:
-        """Human-readable confidence tier."""
-        if self.percentage >= 80:
+        """Human-readable confidence tier (now based on Wilson bounds)."""
+        if self.wilson_lower_bound >= 75:
             return "Very High"
-        if self.percentage >= 65:
+        if self.wilson_lower_bound >= 60:
             return "High"
-        if self.percentage >= 50:
+        if self.wilson_lower_bound >= 45:
             return "Medium"
-        if self.percentage >= 35:
+        if self.wilson_lower_bound >= 30:
             return "Low"
         return "Very Low"
 
     def __repr__(self) -> str:
         return (
             f"{self.label}: {self.count}/{self.total} "
-            f"({self.percentage:.1f}%) [{self.confidence}]"
+            f"({self.percentage:.1f}%) [W:{self.wilson_lower_bound:.1f}%]"
         )
 
 
 @dataclass
 class GoalsPattern:
     """All goal-related pattern stats for a set of matches."""
-    # BTTS
     btts_yes: Optional[PatternStat] = None
     btts_no: Optional[PatternStat] = None
 
-    # Over/Under Full Time
     over_0_5_ft: Optional[PatternStat] = None
     over_1_5_ft: Optional[PatternStat] = None
     over_2_5_ft: Optional[PatternStat] = None
@@ -64,7 +84,6 @@ class GoalsPattern:
     under_3_5_ft: Optional[PatternStat] = None
     under_4_5_ft: Optional[PatternStat] = None
 
-    # Over/Under Half Time
     over_0_5_ht: Optional[PatternStat] = None
     over_1_5_ht: Optional[PatternStat] = None
     over_2_5_ht: Optional[PatternStat] = None
@@ -72,11 +91,10 @@ class GoalsPattern:
     under_1_5_ht: Optional[PatternStat] = None
     under_2_5_ht: Optional[PatternStat] = None
 
-    # Average goals
     avg_goals_ft: float = 0.0
     avg_goals_ht: float = 0.0
-    avg_goals_scored: float = 0.0    # by the context team
-    avg_goals_conceded: float = 0.0  # by the context team
+    avg_goals_scored: float = 0.0
+    avg_goals_conceded: float = 0.0
 
 
 @dataclass
@@ -86,28 +104,26 @@ class ResultPattern:
     draws: Optional[PatternStat] = None
     losses: Optional[PatternStat] = None
 
-    # Half-time results
     ht_wins: Optional[PatternStat] = None
     ht_draws: Optional[PatternStat] = None
     ht_losses: Optional[PatternStat] = None
 
-    # HT/FT combos (most common)
     ht_ft_distribution: dict[str, PatternStat] = field(default_factory=dict)
 
 
 @dataclass
 class TeamScoringPattern:
     """Patterns related to team scoring / failing to score."""
-    scored_in_match: Optional[PatternStat] = None       # Team scored >= 1
-    failed_to_score: Optional[PatternStat] = None       # Team scored 0
-    clean_sheet: Optional[PatternStat] = None            # Opponent scored 0
-    scored_first: Optional[PatternStat] = None           # Team scored the first goal
-    conceded_first: Optional[PatternStat] = None         # Opponent scored first
+    scored_in_match: Optional[PatternStat] = None
+    failed_to_score: Optional[PatternStat] = None
+    clean_sheet: Optional[PatternStat] = None
+    scored_first: Optional[PatternStat] = None
+    conceded_first: Optional[PatternStat] = None
 
-    scored_in_1h: Optional[PatternStat] = None           # Team scored in first half
-    scored_in_2h: Optional[PatternStat] = None           # Team scored in second half
-    conceded_in_1h: Optional[PatternStat] = None         # Opponent scored in first half
-    conceded_in_2h: Optional[PatternStat] = None         # Opponent scored in second half
+    scored_in_1h: Optional[PatternStat] = None
+    scored_in_2h: Optional[PatternStat] = None
+    conceded_in_1h: Optional[PatternStat] = None
+    conceded_in_2h: Optional[PatternStat] = None
 
 
 @dataclass
@@ -146,29 +162,24 @@ class CardsPattern:
     under_4_5_cards: Optional[PatternStat] = None
     under_5_5_cards: Optional[PatternStat] = None
 
-    # First half cards
-    cards_in_1h: Optional[PatternStat] = None  # at least 1 card in 1H
+    cards_in_1h: Optional[PatternStat] = None
     avg_cards_1h: float = 0.0
 
 
 @dataclass
 class FirstHalfPattern:
     """Aggregated first-half event patterns."""
-    # Goals in 1st half
-    goals_in_1h: Optional[PatternStat] = None           # At least 1 goal in 1H
-    both_scored_1h: Optional[PatternStat] = None         # Both teams scored in 1H
+    goals_in_1h: Optional[PatternStat] = None
+    both_scored_1h: Optional[PatternStat] = None
     over_0_5_goals_1h: Optional[PatternStat] = None
     over_1_5_goals_1h: Optional[PatternStat] = None
 
-    # Cards in 1st half
-    cards_in_1h: Optional[PatternStat] = None            # At least 1 card in 1H
+    cards_in_1h: Optional[PatternStat] = None
     over_0_5_cards_1h: Optional[PatternStat] = None
     over_1_5_cards_1h: Optional[PatternStat] = None
 
-    # Corners in 1st half (when stats available)
     avg_corners_1h: float = 0.0
 
-    # 1H result
     ht_home_win: Optional[PatternStat] = None
     ht_draw: Optional[PatternStat] = None
     ht_away_win: Optional[PatternStat] = None
@@ -179,11 +190,9 @@ class TeamPatternReport:
     """
     Complete pattern analysis for ONE team in ONE context
     (home or away) across a league/season.
-
-    This is the output of the PatternAnalyzer for a single TeamMatchSet.
     """
     team_name: str
-    context: str          # "home" or "away"
+    context: str
     league_name: str
     season: str
     total_matches: int
@@ -195,11 +204,21 @@ class TeamPatternReport:
     cards: CardsPattern = field(default_factory=CardsPattern)
     first_half: FirstHalfPattern = field(default_factory=FirstHalfPattern)
 
-    def get_high_confidence_patterns(self, threshold: float = 65.0) -> list[PatternStat]:
+    def get_high_confidence_patterns(self, min_wilson: float = 60.0, min_matches: int = 8) -> list[PatternStat]:
         """
-        Return all patterns with percentage >= threshold,
-        sorted by percentage descending.
+        Return all statistically significant patterns.
+        
+        Requires:
+          1. Minimum total matches for the split (min_matches).
+          2. Minimum Wilson lower bound (min_wilson).
+        
+        Sorted by the Wilson lower bound descending, as it is a strongly
+        stable metric of predictive power.
         """
+        # Early season instability mask
+        if self.total_matches < min_matches:
+            return []
+
         all_stats: list[PatternStat] = []
 
         # Collect all PatternStat fields from sub-reports
@@ -215,8 +234,8 @@ class TeamPatternReport:
                             all_stats.append(v)
 
         return sorted(
-            [s for s in all_stats if s.percentage >= threshold],
-            key=lambda s: s.percentage,
+            [s for s in all_stats if s.total >= min_matches and s.wilson_lower_bound >= min_wilson],
+            key=lambda s: s.wilson_lower_bound,
             reverse=True,
         )
 

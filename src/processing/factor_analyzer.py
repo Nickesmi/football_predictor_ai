@@ -1,25 +1,13 @@
 """
-Most Common Factor Analysis Engine (Issue #3).
+MVIM Factor Analysis Engine — Multi-Variable Intersection Model.
 
-Takes the TeamPatternReport objects produced by Issue #2's
-PatternAnalyzer and:
-  1. Identifies the most common factors for the Home team (A)
-  2. Identifies the most common factors for the Away team (B)
-  3. Computes the **intersection** — where patterns from both teams align
-  4. Computes a combined Confidence % for each intersecting pattern
-
-The intersection confidence is computed as:
-    combined_pct = (home_pct + away_pct) / 2    (arithmetic mean)
-    — This reflects how strongly BOTH teams' histories support the pattern.
-
-Architecture:
-    TeamPatternReport (Home A)  ──┐
-                                  ├──→ FactorAnalyzer.analyze()
-    TeamPatternReport (Away B)  ──┘         ↓
-                                    MatchFactorReport
-                                    ├── home_factors   (ranked)
-                                    ├── away_factors   (ranked)
-                                    └── intersection   (combined)
+Implements the full decision engine from the Gemini MVIM document:
+  1. Venue-isolated pattern extraction (Dataset H / Dataset A)
+  2. Weighted intersection with Wilson bounds
+  3. Conflict Rule: discard when |home% - away%| > 60
+  4. IC Threshold: only surface patterns with combined_percentage >= 70
+  5. Three-Pillar classification (Goals/Timing, Discipline, Outcome)
+  6. League base-rate deviation scoring
 """
 
 from __future__ import annotations
@@ -31,66 +19,95 @@ from src.models.patterns import PatternStat, TeamPatternReport
 
 
 # ==================================================================
+# Three-Pillar Classification (MVIM Sections 3)
+# ==================================================================
+
+_PILLAR_GOALS = (
+    "BTTS", "Over", "Under", "Goal in 1st Half", "Both Scored in 1H",
+    "Team Scored in 1H", "Team Scored in 2H",
+    "Conceded in 1H", "Conceded in 2H",
+    "Team Scored", "Failed to Score",
+    "Scored First", "Conceded First",
+)
+
+_PILLAR_DISCIPLINE = (
+    "Card", "Over 2.5 Cards", "Over 3.5 Cards", "Over 4.5 Cards",
+    "Over 5.5 Cards", "Under 2.5 Cards", "Under 3.5 Cards",
+    "Under 4.5 Cards", "Under 5.5 Cards",
+)
+
+_PILLAR_OUTCOME = (
+    "Team Win", "Draw", "Team Loss", "Clean Sheet",
+    "HT Team Win", "HT Draw", "HT Team Loss", "HT Opponent Win",
+    "Home Win", "Away Win", "Home Loss", "Away Loss",
+    "HT Home Win", "HT Away Win", "HT Home Loss", "HT Away Loss",
+)
+
+
+def _classify_pillar(label: str) -> str:
+    """Classify a pattern label into one of the MVIM's 3 pillars."""
+    if any(label.startswith(p) for p in _PILLAR_DISCIPLINE):
+        return "Discipline"
+    if any(label.startswith(p) for p in _PILLAR_OUTCOME):
+        return "Outcome"
+    # Default to Goals/Timing (the largest category)
+    return "Goals"
+
+
+# ==================================================================
 # Domain models
 # ==================================================================
 
 @dataclass
 class IntersectionFactor:
     """
-    A pattern that appears in BOTH the home team's and away team's
-    historical data, with a combined confidence score.
+    A pattern that appears in BOTH teams' venue-specific data,
+    passing the Conflict Rule and IC threshold gate.
     """
     label: str
     home_stat: PatternStat
     away_stat: PatternStat
-    combined_percentage: float         # (home% + away%) / 2
+    combined_percentage: float
+    combined_wilson: float
+    deviation_score: float
+    pillar: str = "Goals"
+
+    @property
+    def stability_score(self) -> float:
+        """The ultimate ranking metric: lower bound adjusted by deviation."""
+        return self.combined_wilson + (self.deviation_score * 0.5)
 
     @property
     def confidence(self) -> str:
-        """Combined confidence tier."""
-        if self.combined_percentage >= 80:
+        """Combined confidence tier based on stability score."""
+        if self.stability_score >= 75:
             return "Very High"
-        if self.combined_percentage >= 65:
+        if self.stability_score >= 60:
             return "High"
-        if self.combined_percentage >= 50:
+        if self.stability_score >= 45:
             return "Medium"
-        if self.combined_percentage >= 35:
+        if self.stability_score >= 30:
             return "Low"
         return "Very Low"
 
     @property
     def agreement_strength(self) -> str:
-        """
-        How closely the two teams' percentages agree.
-        A small gap means both teams strongly support the pattern.
-        """
         gap = abs(self.home_stat.percentage - self.away_stat.percentage)
-        if gap <= 10:
-            return "Strong Agreement"
-        if gap <= 25:
-            return "Moderate Agreement"
+        if gap <= 10: return "Strong Agreement"
+        if gap <= 25: return "Moderate Agreement"
         return "Weak Agreement"
 
     def __repr__(self) -> str:
         return (
-            f"{self.label}: "
-            f"Home {self.home_stat.percentage:.1f}% + "
-            f"Away {self.away_stat.percentage:.1f}% → "
+            f"[{self.pillar}] {self.label}: "
             f"Combined {self.combined_percentage:.1f}% "
-            f"[{self.confidence}] ({self.agreement_strength})"
+            f"[Wilson: {self.combined_wilson:.1f}% | Dev: {self.deviation_score:+.1f}%] "
+            f"[{self.confidence}]"
         )
 
 
 @dataclass
 class MatchFactorReport:
-    """
-    Complete factor analysis for a match: Home A vs Away B.
-
-    Contains:
-      - home_factors: Most common patterns for Team A at home (sorted by %)
-      - away_factors: Most common patterns for Team B away (sorted by %)
-      - intersection: Patterns where both teams' data aligns (sorted by combined %)
-    """
     home_team: str
     away_team: str
     league_name: str
@@ -102,57 +119,32 @@ class MatchFactorReport:
     home_factors: list[PatternStat] = field(default_factory=list)
     away_factors: list[PatternStat] = field(default_factory=list)
     intersection: list[IntersectionFactor] = field(default_factory=list)
-
-    def get_intersection_above(self, threshold: float = 65.0) -> list[IntersectionFactor]:
-        """Return intersection factors with combined % >= threshold."""
-        return [f for f in self.intersection if f.combined_percentage >= threshold]
+    conflicts_filtered: int = 0  # Count of conflicted patterns discarded
 
     def get_strong_intersections(self) -> list[IntersectionFactor]:
-        """Return only intersection factors with Strong Agreement."""
-        return [
-            f for f in self.intersection
-            if f.agreement_strength == "Strong Agreement"
-        ]
+        return [f for f in self.intersection if f.confidence in ("High", "Very High")]
 
-    def __repr__(self) -> str:
-        return (
-            f"MatchFactorReport({self.home_team} vs {self.away_team} | "
-            f"{self.league_name} {self.season} | "
-            f"Home: {len(self.home_factors)} factors, "
-            f"Away: {len(self.away_factors)} factors, "
-            f"Intersection: {len(self.intersection)} factors)"
-        )
+    def get_intersection_above(self, threshold: float) -> list[IntersectionFactor]:
+        return [f for f in self.intersection if f.combined_percentage >= threshold]
 
 
 # ==================================================================
-# Label normalization
+# Label normalization & Baselines
 # ==================================================================
 
-# Mapping of label patterns that should be treated as equivalent
-# when comparing home vs away reports. Some patterns have
-# context-specific labels that refer to the same underlying market.
 _NORMALIZE_MAP: dict[str, str] = {
-    # Results — both "Home Win" and "Away Win" map to contextual "Team Win"
-    # but we keep them separate since they're not the same market.
-    # Instead, we normalize market-neutral labels.
     "HT Home Win": "HT Team Win",
     "HT Away Win": "HT Opponent Win",
     "Home Win": "Team Win",
     "Away Win": "Team Win",
     "Home Loss": "Team Loss",
     "Away Loss": "Team Loss",
-    "HT Home Win": "HT Team Win",
     "HT Home Loss": "HT Team Loss",
-    "HT Away Win": "HT Team Win",
     "HT Away Loss": "HT Team Loss",
 }
 
-# Labels that are MARKET-NEUTRAL — they mean the same thing regardless
-# of home/away context. These are the labels we match on for intersection.
 _MARKET_NEUTRAL_PREFIXES = (
-    "BTTS",
-    "Over", "Under",
-    "Draw", "HT Draw",
+    "BTTS", "Over", "Under", "Draw", "HT Draw",
     "Team Scored", "Failed to Score", "Clean Sheet",
     "Scored First", "Conceded First",
     "Team Scored in 1H", "Team Scored in 2H",
@@ -161,91 +153,56 @@ _MARKET_NEUTRAL_PREFIXES = (
     "Card in 1st Half",
 )
 
+# Heuristic base rates for league averages
+_BASELINES = {
+    "BTTS - Yes": 53.0,
+    "Over 1.5 Goals FT": 75.0,
+    "Over 2.5 Goals FT": 52.0,
+    "Over 3.5 Goals FT": 28.0,
+    "Over 0.5 Goals HT": 68.0,
+    "Over 1.5 Goals HT": 30.0,
+    "Goal in 1st Half": 68.0,
+}
+
+def _get_baseline(label: str) -> float:
+    for prefix, val in _BASELINES.items():
+        if label.startswith(prefix):
+            return val
+    return 50.0  # Safe fallback
 
 def _normalize_label(label: str) -> str:
-    """
-    Normalize a pattern label for cross-team comparison.
-
-    Market-neutral labels (BTTS, O/U, etc.) stay unchanged.
-    Context-specific labels are remapped to a common form.
-    """
     return _NORMALIZE_MAP.get(label, label)
 
-
 def _is_matchable(label: str) -> bool:
-    """
-    Check if a pattern label represents a market that can be
-    meaningfully intersected between home and away teams.
-
-    We exclude context-specific labels like "Home Win" vs "Away Win"
-    because they aren't the same market. Instead, we include
-    market-neutral patterns and specific scoring/event markets.
-    """
     return any(label.startswith(prefix) for prefix in _MARKET_NEUTRAL_PREFIXES)
 
 
 # ==================================================================
-# Analyzer
+# MVIM Analyzer
 # ==================================================================
 
+# Conflict Rule constants (from Gemini MVIM Section 5)
+CONFLICT_DISCARD_GAP = 60.0   # |home% - away%| > 60 → discard entirely
+IC_MINIMUM_THRESHOLD = 70.0   # Only surface IC >= 70% (Gemini "Confidence Threshold")
+
+
 class FactorAnalyzer:
-    """
-    Computes the most common factors for Home (A), Away (B),
-    and their intersection.
-
-    Usage::
-
-        factor_analyzer = FactorAnalyzer()
-        report = factor_analyzer.analyze(
-            home_report,   # TeamPatternReport for Team A at home
-            away_report,   # TeamPatternReport for Team B away
-            threshold=50.0
-        )
-        # Top intersection factors
-        for f in report.get_intersection_above(65.0):
-            print(f)
-    """
-
     def analyze(
         self,
         home_report: TeamPatternReport,
         away_report: TeamPatternReport,
-        threshold: float = 50.0,
+        min_wilson: float = 60.0,
     ) -> MatchFactorReport:
-        """
-        Compute the most common factors for both teams and their intersection.
+        logger.info("MVIM Analysis: %s (HOME) vs %s (AWAY)", home_report.team_name, away_report.team_name)
 
-        Args:
-            home_report: Pattern analysis for the home team.
-            away_report: Pattern analysis for the away team.
-            threshold: Minimum percentage for a pattern to be included
-                       as a "most common factor". Default 50%.
+        home_factors = home_report.get_high_confidence_patterns(min_wilson=min_wilson)
+        away_factors = away_report.get_high_confidence_patterns(min_wilson=min_wilson)
 
-        Returns:
-            MatchFactorReport with home factors, away factors, and intersection.
-        """
-        logger.info(
-            "Computing factor analysis: %s (HOME) vs %s (AWAY)",
-            home_report.team_name, away_report.team_name,
-        )
-
-        # Step 1: Extract most common factors for each team
-        home_factors = home_report.get_high_confidence_patterns(threshold=threshold)
-        away_factors = away_report.get_high_confidence_patterns(threshold=threshold)
+        intersection, conflicts = self._compute_intersection(home_factors, away_factors)
 
         logger.info(
-            "Home factors (>= %.0f%%): %d | Away factors: %d",
-            threshold, len(home_factors), len(away_factors),
-        )
-
-        # Step 2: Compute intersection
-        intersection = self._compute_intersection(
-            home_factors, away_factors, threshold
-        )
-
-        logger.info(
-            "Intersection factors: %d (combined >= %.0f%%)",
-            len(intersection), threshold,
+            "MVIM Result: %d stable intersections | %d conflicts discarded",
+            len(intersection), conflicts,
         )
 
         return MatchFactorReport(
@@ -258,24 +215,14 @@ class FactorAnalyzer:
             home_factors=home_factors,
             away_factors=away_factors,
             intersection=intersection,
+            conflicts_filtered=conflicts,
         )
 
     @staticmethod
     def _compute_intersection(
         home_factors: list[PatternStat],
         away_factors: list[PatternStat],
-        threshold: float,
-    ) -> list[IntersectionFactor]:
-        """
-        Find patterns that appear in BOTH teams' factor lists.
-
-        For each matching pattern:
-          - Combined % = (home% + away%) / 2
-          - Only included if combined% >= threshold
-
-        Returns the intersection sorted by combined_percentage descending.
-        """
-        # Build lookup: normalized_label → PatternStat for away team
+    ) -> tuple[list[IntersectionFactor], int]:
         away_lookup: dict[str, PatternStat] = {}
         for stat in away_factors:
             norm = _normalize_label(stat.label)
@@ -283,27 +230,53 @@ class FactorAnalyzer:
                 away_lookup[norm] = stat
 
         intersection: list[IntersectionFactor] = []
+        conflicts = 0
 
         for home_stat in home_factors:
             if not _is_matchable(home_stat.label):
                 continue
-
             norm = _normalize_label(home_stat.label)
             away_stat = away_lookup.get(norm)
 
             if away_stat is not None:
-                combined = round(
-                    (home_stat.percentage + away_stat.percentage) / 2, 1
-                )
-                if combined >= threshold:
-                    intersection.append(IntersectionFactor(
-                        label=home_stat.label,  # Use original label
-                        home_stat=home_stat,
-                        away_stat=away_stat,
-                        combined_percentage=combined,
-                    ))
+                # ── MVIM Conflict Rule (Section 5) ──────────────
+                gap = abs(home_stat.percentage - away_stat.percentage)
+                if gap > CONFLICT_DISCARD_GAP:
+                    conflicts += 1
+                    continue  # Conflicted — discard entirely
 
-        # Sort by combined percentage descending
-        intersection.sort(key=lambda f: f.combined_percentage, reverse=True)
+                # ── Weighted averages based on sample sizes ─────
+                total_n = home_stat.total + away_stat.total
+                hw = home_stat.total / total_n
+                aw = away_stat.total / total_n
 
-        return intersection
+                comb_pct = (home_stat.percentage * hw) + (away_stat.percentage * aw)
+                comb_wilson = (home_stat.wilson_lower_bound * hw) + (away_stat.wilson_lower_bound * aw)
+
+                # ── MVIM IC Threshold (Section 5) ──────────────
+                if comb_pct < IC_MINIMUM_THRESHOLD:
+                    continue  # Below Gemini confidence gate
+
+                # ── League base-rate deviation ─────────────────
+                baseline = _get_baseline(home_stat.label)
+                deviation = comb_pct - baseline
+
+                # ── Conflict penalty for moderate disagreement ─
+                conflict_penalty = max(0, (gap - 20) * 0.3)
+
+                # ── Three-Pillar classification ────────────────
+                pillar = _classify_pillar(home_stat.label)
+
+                intersection.append(IntersectionFactor(
+                    label=home_stat.label,
+                    home_stat=home_stat,
+                    away_stat=away_stat,
+                    combined_percentage=round(comb_pct, 1),
+                    combined_wilson=round(comb_wilson - conflict_penalty, 1),
+                    deviation_score=round(deviation, 1),
+                    pillar=pillar,
+                ))
+
+        # Sort by stability score descending
+        intersection.sort(key=lambda f: f.stability_score, reverse=True)
+        return intersection, conflicts

@@ -1,0 +1,261 @@
+{
+  "btts": {
+    "roc_auc_mean": 0.5474,
+    "roc_auc_std": 0.0084,
+    "accuracy_mean": 0.5277,
+    "positive_rate": 0.508,
+    "n_samples": 3000,
+    "top_features": [
+      {
+        "name": "expected_total_goals",
+        "importance": 0.0627
+      },
+      {
+        "name": "away_avg_scored",
+        "importance": 0.0464
+      },
+      {
+        "name": "away_avg_conceded",
+        "importance": 0.0447
+      },
+      {
+        "name": "away_goal_diff",
+        "importance": 0.0444
+      },
+      {
+        "name": "away_over_2_5_rate",
+        "importance": 0.0442
+      },
+      {
+        "name": "away_btts_rate",
+        "importance": 0.0436
+      },
+      {
+        "name": "home_btts_rate",
+        "importance": 0.0435
+      }
+    ]
+  },
+  "over_1_5": {
+    "roc_auc_mean": 0.5673,
+    "roc_auc_std": 0.0164,
+    "accuracy_mean": 0.711,
+    "positive_rate": 0.733,
+    "n_samples": 3000,
+    "top_features": [
+      {
+        "name": "expected_total_goals",
+        "importance": 0.069
+      },
+      {
+        "name": "home_avg_scored",
+        "importance": 0.0458
+      },
+      {
+        "name": "away_goal_diff",
+        "importance": 0.045
+      },
+      {
+        "name": "away_avg_conceded",
+        "importance": 0.0449
+      },
+      {
+        "name": "offensive_matchup",
+        "importance": 0.0446
+      },
+      {
+        "name": "home_btts_rate",
+        "importance": 0.0433
+      },
+      {
+        "name": "home_clean_sheet_rate",
+        "importance": 0.0432
+      }
+    ]
+  },
+  "over_2_5": {
+    "roc_auc_mean": 0.5607,
+    "roc_auc_std": 0.0084,
+    "accuracy_mean": 0.538,
+    "positive_rate": 0.486,
+    "n_samples": 3000,
+    "top_features": [
+      {
+        "name": "expected_total_goals",
+        "importance": 0.0662
+      },
+      {
+        "name": "away_goal_diff",
+        "importance": 0.0447
+      },
+      {
+        "name": "away_avg_scored",
+        "importance": 0.0445
+      },
+      {
+        "name": "home_avg_conceded",
+        "importance": 0.0442
+      },
+      {
+        "name": "strength_diff",
+        "importance": 0.0438
+      },
+      {
+        "name": "home_attack_vs_away_defense",
+        "importance": 0.0434
+      },
+      {
+        "name": "offensive_matchup",
+        "importance": 0.0433
+      }
+    ]
+  },
+  "over_3_5": {
+    "roc_auc_mean": 0.5814,
+    "roc_auc_std": 0.0217,
+    "accuracy_mean": 0.7003,
+    "positive_rate": 0.2827,
+    "n_samples": 3000,
+    "top_features": [
+      {
+        "name": "expected_total_goals",
+        "importance": 0.0737
+      },
+      {
+        "name": "home_avg_scored",
+        "importance": 0.0456
+      },
+      {
+        "name": "away_goal_diff",
+        "importance": 0.0452
+      },
+      {
+        "name": "offensive_matchup",
+        "importance": 0.0442
+      },
+      {
+        "name": "home_avg_conceded",
+        "importance": 0.0439
+      },
+      {
+        "name": "away_avg_conceded",
+        "importance": 0.0432
+      },
+      {
+        "name": "away_btts_rate",
+        "importance": 0.0432
+      }
+    ]
+  },
+  "home_win": {
+    "roc_auc_mean": 0.5633,
+    "roc_auc_std": 0.0155,
+    "accuracy_mean": 0.5497,
+    "positive_rate": 0.4643,
+    "n_samples": 3000,
+    "top_features": [
+      {
+        "name": "strength_diff",
+        "importance": 0.0709
+      },
+      {
+        "name": "away_avg_scored",
+        "importance": 0.0456
+      },
+      {
+        "name": "home_fts_rate",
+        "importance": 0.045
+      },
+      {
+        "name": "home_attack_vs_away_defense",
+        "importance": 0.045
+      },
+      {
+        "name": "home_goal_diff",
+        "importance": 0.0438
+      },
+      {
+        "name": "home_clean_sheet_rate",
+        "importance": 0.0436
+      },
+      {
+        "name": "home_btts_rate",
+        "importance": 0.0432
+      }
+    ]
+  },
+  "draw": {
+    "roc_auc_mean": 0.5156,
+    "roc_auc_std": 0.0151,
+    "accuracy_mean": 0.7353,
+    "positive_rate": 0.245,
+    "n_samples": 3000,
+    "top_features": [
+      {
+        "name": "away_clean_sheet_rate",
+        "importance": 0.0473
+      },
+      {
+        "name": "away_attack_vs_home_defense",
+        "importance": 0.0471
+      },
+      {
+        "name": "strength_diff",
+        "importance": 0.0452
+      },
+      {
+        "name": "home_clean_sheet_rate",
+        "importance": 0.0446
+      },
+      {
+        "name": "away_avg_conceded",
+        "importance": 0.0446
+      },
+      {
+        "name": "home_goal_diff",
+        "importance": 0.0445
+      },
+      {
+        "name": "home_attack_vs_away_defense",
+        "importance": 0.0445
+      }
+    ]
+  },
+  "ht_over_0_5": {
+    "roc_auc_mean": 0.5077,
+    "roc_auc_std": 0.0065,
+    "accuracy_mean": 0.6493,
+    "positive_rate": 0.6863,
+    "n_samples": 3000,
+    "top_features": [
+      {
+        "name": "home_avg_conceded",
+        "importance": 0.0465
+      },
+      {
+        "name": "away_avg_scored",
+        "importance": 0.046
+      },
+      {
+        "name": "away_goal_diff",
+        "importance": 0.0457
+      },
+      {
+        "name": "home_clean_sheet_rate",
+        "importance": 0.0456
+      },
+      {
+        "name": "strength_diff",
+        "importance": 0.0456
+      },
+      {
+        "name": "expected_total_goals",
+        "importance": 0.0448
+      },
+      {
+        "name": "home_fts_rate",
+        "importance": 0.0445
+      }
+    ]
+  }
+}
