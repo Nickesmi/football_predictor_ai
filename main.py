@@ -9,7 +9,8 @@ Implements the full pipeline:
   2. Fetch all HOME matches of Team A in League L (Issue #1)
   3. Fetch all AWAY matches of Team B in League L (Issue #1)
   4. Compute statistical patterns for each set (Issue #2)
-  5. Display high-confidence patterns
+  5. Compute most common factors & intersection (Issue #3)
+  6. Display results
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from src.data.api_football_fetcher import APIFootballFetcher
 from src.models.match import TeamMatchSet
 from src.models.patterns import TeamPatternReport
 from src.processing.pattern_analyzer import PatternAnalyzer
+from src.processing.factor_analyzer import FactorAnalyzer, MatchFactorReport
 
 
 def print_match_set_summary(match_set: TeamMatchSet) -> None:
@@ -67,7 +69,6 @@ def print_pattern_report(report: TeamPatternReport, threshold: float = 60.0) -> 
         print("  No data to analyze.\n")
         return
 
-    # ---- Goals ----
     g = report.goals
     print(f"\n  ⚽ GOALS")
     print(f"     Avg Goals FT: {g.avg_goals_ft} | Avg Goals HT: {g.avg_goals_ht}")
@@ -82,7 +83,6 @@ def print_pattern_report(report: TeamPatternReport, threshold: float = 60.0) -> 
             if stat:
                 print(f"     {stat}")
 
-    # ---- Results ----
     r = report.results
     print(f"\n  🏆 RESULTS (W/D/L)")
     for stat in [r.wins, r.draws, r.losses]:
@@ -93,60 +93,90 @@ def print_pattern_report(report: TeamPatternReport, threshold: float = 60.0) -> 
         for stat in [r.ht_wins, r.ht_draws, r.ht_losses]:
             if stat:
                 print(f"     {stat}")
-    if r.ht_ft_distribution:
-        print(f"     --- HT/FT Combos ---")
-        for combo, stat in list(r.ht_ft_distribution.items())[:5]:
-            print(f"     {stat}")
 
-    # ---- Team Scoring ----
     s = report.scoring
     print(f"\n  🎯 TEAM SCORING")
     for stat in [s.scored_in_match, s.failed_to_score, s.clean_sheet,
                  s.scored_first, s.conceded_first]:
         if stat:
             print(f"     {stat}")
-    print(f"     --- By Half ---")
-    for stat in [s.scored_in_1h, s.scored_in_2h, s.conceded_in_1h, s.conceded_in_2h]:
-        if stat:
-            print(f"     {stat}")
 
-    # ---- Corners ----
     c = report.corners
     if c.avg_corners_total > 0:
-        print(f"\n  🚩 CORNERS")
-        print(f"     Avg Total: {c.avg_corners_total} | Team: {c.avg_corners_team} | Opponent: {c.avg_corners_opponent}")
-        for stat in [c.over_7_5, c.over_8_5, c.over_9_5, c.over_10_5, c.over_11_5]:
+        print(f"\n  🚩 CORNERS (Avg Total: {c.avg_corners_total})")
+        for stat in [c.over_7_5, c.over_8_5, c.over_9_5, c.over_10_5]:
             if stat:
                 print(f"     {stat}")
 
-    # ---- Cards ----
     cd = report.cards
     if cd.avg_yellow_total > 0:
-        print(f"\n  🟨 CARDS")
-        print(f"     Avg Yellow Total: {cd.avg_yellow_total} | Team: {cd.avg_yellow_team} | Opponent: {cd.avg_yellow_opponent}")
-        for stat in [cd.over_2_5_cards, cd.over_3_5_cards, cd.over_4_5_cards, cd.over_5_5_cards]:
+        print(f"\n  🟨 CARDS (Avg Yellow: {cd.avg_yellow_total})")
+        for stat in [cd.over_2_5_cards, cd.over_3_5_cards, cd.over_4_5_cards]:
             if stat:
                 print(f"     {stat}")
-        if cd.cards_in_1h:
-            print(f"     {cd.cards_in_1h}")
 
-    # ---- First Half Events ----
     fh = report.first_half
     if fh.goals_in_1h:
-        print(f"\n  ⏱️  FIRST HALF EVENTS")
-        for stat in [fh.goals_in_1h, fh.both_scored_1h, fh.over_0_5_goals_1h,
-                     fh.over_1_5_goals_1h, fh.cards_in_1h, fh.over_0_5_cards_1h,
-                     fh.over_1_5_cards_1h]:
+        print(f"\n  ⏱️  FIRST HALF")
+        for stat in [fh.goals_in_1h, fh.both_scored_1h, fh.cards_in_1h]:
             if stat:
                 print(f"     {stat}")
 
-    # ---- High Confidence Summary ----
     high = report.get_high_confidence_patterns(threshold=threshold)
     if high:
-        print(f"\n  🔥 HIGH CONFIDENCE PATTERNS (≥{threshold:.0f}%)")
-        for p in high:
+        print(f"\n  🔥 HIGH CONFIDENCE (≥{threshold:.0f}%)")
+        for p in high[:10]:
             icon = "🟢" if p.percentage >= 80 else "🟡"
             print(f"     {icon} {p}")
+    print()
+
+
+def print_factor_report(report: MatchFactorReport, threshold: float = 65.0) -> None:
+    """Print the factor intersection report."""
+    print(f"\n{'━'*70}")
+    print(f"  🔬 FACTOR ANALYSIS: {report.home_team} (HOME) vs {report.away_team} (AWAY)")
+    print(f"     {report.league_name} {report.season}")
+    print(f"     Home: {report.home_total_matches} matches | Away: {report.away_total_matches} matches")
+    print(f"{'━'*70}")
+
+    # Top home factors
+    print(f"\n  📌 TOP HOME FACTORS ({report.home_team})")
+    for p in report.home_factors[:8]:
+        icon = "🟢" if p.percentage >= 80 else "🟡" if p.percentage >= 65 else "⚪"
+        print(f"     {icon} {p}")
+
+    # Top away factors
+    print(f"\n  📌 TOP AWAY FACTORS ({report.away_team})")
+    for p in report.away_factors[:8]:
+        icon = "🟢" if p.percentage >= 80 else "🟡" if p.percentage >= 65 else "⚪"
+        print(f"     {icon} {p}")
+
+    # Intersection
+    high_intersection = report.get_intersection_above(threshold)
+    if high_intersection:
+        print(f"\n  🎯 PATTERN INTERSECTION (Combined ≥ {threshold:.0f}%)")
+        print(f"     {'─'*60}")
+        for f in high_intersection:
+            icon = "🟢" if f.combined_percentage >= 80 else "🟡" if f.combined_percentage >= 65 else "⚪"
+            strength = "💪" if f.agreement_strength == "Strong Agreement" else "🤝" if f.agreement_strength == "Moderate Agreement" else "🔗"
+            print(
+                f"     {icon} {f.label}: "
+                f"Home {f.home_stat.percentage:.0f}% + Away {f.away_stat.percentage:.0f}% "
+                f"→ Combined {f.combined_percentage:.1f}% [{f.confidence}] {strength}"
+            )
+    else:
+        print(f"\n  ⚠️  No intersection factors found above {threshold:.0f}%")
+
+    # Strong agreements
+    strong = report.get_strong_intersections()
+    strong_above = [s for s in strong if s.combined_percentage >= threshold]
+    if strong_above:
+        print(f"\n  💪 STRONGEST AGREEMENTS (gap ≤ 10%)")
+        for f in strong_above[:5]:
+            print(
+                f"     ✅ {f.label}: {f.combined_percentage:.1f}% "
+                f"(Home {f.home_stat.percentage:.0f}% ≈ Away {f.away_stat.percentage:.0f}%)"
+            )
 
     print()
 
@@ -163,21 +193,14 @@ def main():
         """),
     )
 
-    # Team identification – by name or by ID
     parser.add_argument("--home", type=str, help="Home team name (will search API)")
     parser.add_argument("--away", type=str, help="Away team name (will search API)")
     parser.add_argument("--home-id", type=int, help="Home team ID (skip search)")
     parser.add_argument("--away-id", type=int, help="Away team ID (skip search)")
-
-    # League identification
     parser.add_argument("--league", type=str, help="League name (will search API)")
     parser.add_argument("--league-id", type=int, help="League ID (skip search)")
     parser.add_argument("--country", type=str, help="Country filter for league search")
-
-    # Season
     parser.add_argument("--season", type=int, required=True, help="Season year (e.g. 2024)")
-
-    # Analysis options
     parser.add_argument(
         "--threshold", type=float, default=65.0,
         help="Confidence threshold for high-confidence patterns (default: 65.0)"
@@ -185,7 +208,6 @@ def main():
 
     args = parser.parse_args()
 
-    # Validate API key
     if not APIFOOTBALL_API_KEY:
         print(
             "❌ ERROR: APIFOOTBALL_API_KEY is not set.\n"
@@ -195,7 +217,8 @@ def main():
         sys.exit(1)
 
     fetcher = APIFootballFetcher()
-    analyzer = PatternAnalyzer()
+    pattern_analyzer = PatternAnalyzer()
+    factor_analyzer = FactorAnalyzer()
 
     # ---- Resolve team IDs ----
     home_team_id = args.home_id
@@ -236,7 +259,7 @@ def main():
         league_id = leagues[0]["id"]
         print(f"✓ League: {leagues[0]['name']} (ID: {league_id})")
 
-    # ---- Fetch data (Issue #1) ----
+    # ---- Issue #1: Fetch data ----
     print(f"\n🔄 Fetching match data for season {args.season}...")
     home_matches, away_matches = fetcher.fetch_match_context(
         home_team_id=home_team_id,
@@ -245,19 +268,26 @@ def main():
         season=args.season,
     )
 
-    # ---- Display raw matches ----
     print_match_set_summary(home_matches)
     print_match_set_summary(away_matches)
 
-    # ---- Analyze patterns (Issue #2) ----
-    print(f"\n🔬 Computing statistical patterns...")
-    home_report = analyzer.analyze(home_matches)
-    away_report = analyzer.analyze(away_matches)
+    # ---- Issue #2: Compute patterns ----
+    print(f"🔬 Computing statistical patterns...")
+    home_report = pattern_analyzer.analyze(home_matches)
+    away_report = pattern_analyzer.analyze(away_matches)
 
     print_pattern_report(home_report, threshold=args.threshold)
     print_pattern_report(away_report, threshold=args.threshold)
 
-    print("✅ Analysis complete. Ready for factor intersection (Issue #3).\n")
+    # ---- Issue #3: Factor intersection ----
+    print(f"🎯 Computing factor intersection...")
+    factor_report = factor_analyzer.analyze(
+        home_report, away_report, threshold=args.threshold
+    )
+
+    print_factor_report(factor_report, threshold=args.threshold)
+
+    print("✅ Analysis complete. Ready for report formatting (Issue #4).\n")
 
 
 if __name__ == "__main__":
