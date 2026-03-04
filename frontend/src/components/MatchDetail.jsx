@@ -1,7 +1,7 @@
 import React from 'react';
-import { Loader2, AlertCircle, BarChart3, TrendingUp, Info, CheckCircle2, ShieldAlert, Target, Zap, Trophy, Shield, Crosshair, Flame, Brain, Cpu, Activity, Sigma } from 'lucide-react';
+import { Loader2, AlertCircle, BarChart3, TrendingUp, Info, CheckCircle2, ShieldAlert, Target, Zap, Trophy, Shield, Crosshair, Flame, Brain, Cpu, Activity, Sigma, CornerUpRight, CreditCard } from 'lucide-react';
 
-/* ── Helpers ──────────────────────────────────────────── */
+/* ── Helpers ──────────────────────────────────────── */
 
 const getConfBadge = (conf) => {
   const map = {
@@ -35,6 +35,12 @@ const getVerdictStyle = (verdict) => {
   return { cls: "text-red-400 bg-red-400/10 border-red-400/20", icon: <ShieldAlert className="w-3.5 h-3.5" /> };
 };
 
+const getPillarIcon = (pillar) => {
+  if (pillar === "Corners") return <CornerUpRight className="w-3 h-3" />;
+  if (pillar === "Cards") return <CreditCard className="w-3 h-3" />;
+  return <Target className="w-3 h-3" />;
+};
+
 
 /* ── Main Component ──────────────────────────────────── */
 
@@ -62,10 +68,8 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
   if (!analysis) return null;
 
   const poisson = analysis.poisson;
-  const valueMap = {};
-  if (analysis.value_selections) {
-    analysis.value_selections.forEach(vs => { valueMap[vs.pattern] = vs; });
-  }
+  const corners = analysis.corners;
+  const cards = analysis.cards;
 
   return (
     <div className="max-w-3xl mx-auto p-6 animate-fade-in">
@@ -136,10 +140,7 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
               <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mb-3">Most Likely Scorelines</p>
               <div className="flex gap-2 justify-center flex-wrap">
                 {poisson.top_scorelines.map((s, i) => (
-                  <div
-                    key={i}
-                    className={`px-4 py-2.5 rounded-lg border text-center min-w-[72px] ${i === 0 ? 'bg-cyan-400/10 border-cyan-400/30' : 'bg-surface-1 border-border'}`}
-                  >
+                  <div key={i} className={`px-4 py-2.5 rounded-lg border text-center min-w-[72px] ${i === 0 ? 'bg-cyan-400/10 border-cyan-400/30' : 'bg-surface-1 border-border'}`}>
                     <span className={`text-lg font-mono font-black ${i === 0 ? 'text-cyan-400' : 'text-white'}`}>{s.score}</span>
                     <p className="text-[9px] text-slate-500 mt-0.5">{s.probability}%</p>
                   </div>
@@ -148,7 +149,7 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
             </div>
           )}
 
-          {/* Goals Markets from Poisson */}
+          {/* Goals Markets */}
           <div className="bg-surface-2 border border-border rounded-xl p-4 mb-4">
             <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mb-3">Goals Markets (Poisson)</p>
             <div className="space-y-2">
@@ -156,10 +157,7 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
                 <div key={i} className="flex items-center gap-3">
                   <span className="text-[12px] text-slate-400 font-medium w-36">{m.market}</span>
                   <div className="flex-1 h-2 bg-black/40 rounded-full overflow-hidden border border-white/5">
-                    <div
-                      className={`h-full bg-gradient-to-r ${getBarColor(m.probability)} rounded-full animate-grow`}
-                      style={{ width: `${Math.min(m.probability, 100)}%` }}
-                    />
+                    <div className={`h-full bg-gradient-to-r ${getBarColor(m.probability)} rounded-full animate-grow`} style={{ width: `${Math.min(m.probability, 100)}%` }} />
                   </div>
                   <span className="text-[12px] font-mono font-bold text-white w-14 text-right">{m.probability.toFixed(1)}%</span>
                 </div>
@@ -167,7 +165,7 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
             </div>
           </div>
 
-          {/* Result + BTTS Row */}
+          {/* Result + BTTS */}
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-surface-2 border border-border rounded-xl p-4">
               <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mb-2">Result</p>
@@ -208,41 +206,62 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
         </div>
       )}
 
-      {/* ── XGBoost AI Reinforcement ─────────────────── */}
-      {analysis.xgboost_predictions && analysis.xgboost_predictions.length > 0 && (
+      {/* ── Corners Model ────────────────────────────── */}
+      {corners && (
         <div className="mb-6">
           <div className="flex items-center gap-2 mb-4">
-            <Cpu className="w-4 h-4 text-purple-400" />
-            <h3 className="text-xs font-bold tracking-[0.15em] text-purple-300 uppercase">XGBoost Reinforcement</h3>
-            <span className="text-[9px] text-purple-400/50 font-medium ml-auto">Interaction Features</span>
+            <CornerUpRight className="w-4 h-4 text-blue-400" />
+            <h3 className="text-xs font-bold tracking-[0.15em] text-blue-300 uppercase">Expected Corners</h3>
+            <span className="text-[9px] text-blue-400/50 font-medium ml-auto">
+              {fixture.home_team.name}: {corners.expected_home} | {fixture.away_team.name}: {corners.expected_away}
+            </span>
           </div>
-          <div className="space-y-2">
-            {analysis.xgboost_predictions.map((pred, idx) => {
-              const badge = getConfBadge(pred.confidence);
-              return (
-                <div
-                  key={idx}
-                  className="bg-surface-2 border border-border rounded-xl p-3 hover:border-white/10 transition-all duration-200 animate-slide-in"
-                  style={{ animationDelay: `${idx * 0.04}s` }}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className="text-[13px] text-white font-medium">{pred.market}</span>
-                      <span className="text-purple-400 font-mono font-bold text-[13px]">{pred.probability.toFixed(1)}%</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {pred.top_drivers && pred.top_drivers[0] && (
-                        <span className="text-[9px] text-slate-600">{pred.top_drivers[0].name.replace(/_/g, ' ')}</span>
-                      )}
-                      <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider border ${badge.cls}`}>
-                        {badge.icon}
-                        {pred.confidence}
-                      </span>
-                    </div>
+          <div className="bg-surface-2 border border-blue-500/15 rounded-xl p-4">
+            <div className="text-center mb-3">
+              <span className="text-2xl font-mono font-black text-blue-400">{corners.expected_total.toFixed(1)}</span>
+              <p className="text-[10px] text-slate-500 mt-0.5">Expected Total Corners</p>
+            </div>
+            <div className="space-y-2">
+              {corners.markets.map((m, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <span className="text-[12px] text-slate-400 font-medium w-36">{m.market}</span>
+                  <div className="flex-1 h-2 bg-black/40 rounded-full overflow-hidden border border-white/5">
+                    <div className={`h-full bg-gradient-to-r from-blue-500 to-blue-400 rounded-full animate-grow`} style={{ width: `${Math.min(m.probability, 100)}%` }} />
                   </div>
+                  <span className="text-[12px] font-mono font-bold text-white w-14 text-right">{m.probability.toFixed(1)}%</span>
                 </div>
-              );
-            })}
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Cards Model ──────────────────────────────── */}
+      {cards && (
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-4">
+            <CreditCard className="w-4 h-4 text-amber-400" />
+            <h3 className="text-xs font-bold tracking-[0.15em] text-amber-300 uppercase">Expected Cards</h3>
+            <span className="text-[9px] text-amber-400/50 font-medium ml-auto">
+              {fixture.home_team.name}: {cards.expected_home} | {fixture.away_team.name}: {cards.expected_away}
+            </span>
+          </div>
+          <div className="bg-surface-2 border border-amber-500/15 rounded-xl p-4">
+            <div className="text-center mb-3">
+              <span className="text-2xl font-mono font-black text-amber-400">{cards.expected_total.toFixed(1)}</span>
+              <p className="text-[10px] text-slate-500 mt-0.5">Expected Total Cards</p>
+            </div>
+            <div className="space-y-2">
+              {cards.markets.map((m, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <span className="text-[12px] text-slate-400 font-medium w-36">{m.market}</span>
+                  <div className="flex-1 h-2 bg-black/40 rounded-full overflow-hidden border border-white/5">
+                    <div className={`h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full animate-grow`} style={{ width: `${Math.min(m.probability, 100)}%` }} />
+                  </div>
+                  <span className="text-[12px] font-mono font-bold text-white w-14 text-right">{m.probability.toFixed(1)}%</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -258,22 +277,52 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
             {analysis.value_selections.map((vs, idx) => {
               const vstyle = getVerdictStyle(vs.verdict);
               return (
-                <div
-                  key={idx}
-                  className={`bg-surface-2 border rounded-xl p-3 flex items-center justify-between animate-slide-in ${vs.verdict === 'Best Choice' ? 'border-amber-400/30' : 'border-border'}`}
-                  style={{ animationDelay: `${idx * 0.06}s` }}
-                >
+                <div key={idx} className={`bg-surface-2 border rounded-xl p-3 flex items-center justify-between animate-slide-in ${vs.verdict === 'Best Choice' ? 'border-amber-400/30' : 'border-border'}`} style={{ animationDelay: `${idx * 0.06}s` }}>
                   <div className="flex items-center gap-2">
                     <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider border ${vstyle.cls}`}>
                       {vstyle.icon}
                       {vs.verdict}
                     </span>
                     <span className="text-white text-sm font-medium">{vs.pattern}</span>
+                    {vs.pillar && (
+                      <span className="flex items-center gap-0.5 text-[9px] text-slate-600">
+                        {getPillarIcon(vs.pillar)} {vs.pillar}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-3 text-[11px]">
-                    <span className="text-slate-500">IC: <span className="text-white font-bold">{vs.ic}%</span></span>
+                    <span className="text-slate-500">Prob: <span className="text-white font-bold">{vs.ic}%</span></span>
                     <span className={`font-bold ${vs.value_edge > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                       Edge: {vs.value_edge > 0 ? '+' : ''}{vs.value_edge}%
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── XGBoost Reinforcement ─────────────────────── */}
+      {analysis.xgboost_predictions && analysis.xgboost_predictions.length > 0 && (
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Cpu className="w-4 h-4 text-purple-400" />
+            <h3 className="text-xs font-bold tracking-[0.15em] text-purple-300 uppercase">XGBoost Reinforcement</h3>
+          </div>
+          <div className="space-y-2">
+            {analysis.xgboost_predictions.map((pred, idx) => {
+              const badge = getConfBadge(pred.confidence);
+              return (
+                <div key={idx} className="bg-surface-2 border border-border rounded-xl p-3 hover:border-white/10 transition-all duration-200 animate-slide-in" style={{ animationDelay: `${idx * 0.04}s` }}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="text-[13px] text-white font-medium">{pred.market}</span>
+                      <span className="text-purple-400 font-mono font-bold text-[13px]">{pred.probability.toFixed(1)}%</span>
+                    </div>
+                    <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider border ${badge.cls}`}>
+                      {badge.icon}
+                      {pred.confidence}
                     </span>
                   </div>
                 </div>
@@ -299,6 +348,10 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
                 <span className="text-2xl font-mono font-bold text-red-400">{analysis.averages.home.avg_goals_conceded.toFixed(1)}</span>
               </div>
               <p className="text-[10px] text-slate-600 mt-1">scored / conceded</p>
+              <div className="flex justify-center gap-3 mt-2 pt-2 border-t border-border">
+                <span className="text-[10px] text-blue-400">⛳ {analysis.averages.home.avg_corners}</span>
+                <span className="text-[10px] text-amber-400">🟨 {analysis.averages.home.avg_cards}</span>
+              </div>
             </div>
             <div className="bg-surface-2 border border-border rounded-xl p-4 text-center">
               <p className="text-[10px] text-slate-500 uppercase tracking-[0.12em] font-bold mb-2">{fixture.away_team.name}</p>
@@ -308,6 +361,10 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
                 <span className="text-2xl font-mono font-bold text-red-400">{analysis.averages.away.avg_goals_conceded.toFixed(1)}</span>
               </div>
               <p className="text-[10px] text-slate-600 mt-1">scored / conceded</p>
+              <div className="flex justify-center gap-3 mt-2 pt-2 border-t border-border">
+                <span className="text-[10px] text-blue-400">⛳ {analysis.averages.away.avg_corners}</span>
+                <span className="text-[10px] text-amber-400">🟨 {analysis.averages.away.avg_cards}</span>
+              </div>
             </div>
           </div>
         </div>
