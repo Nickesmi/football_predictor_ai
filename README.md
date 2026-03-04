@@ -27,6 +27,7 @@ The system will:
    - *Most common factors for the Away Team (Team B)*
    - *Their intersection* (Where patterns from both teams align)
    - *Confidence Percentage* for the predicted outcomes based on historical occurrences.
+   - **Crucially:** Predict the **Final Match Result (1X2)** and **Half-Time Result (1X2)** alongside their computed confidence percentages.
 
 ## Project Structure
 
