@@ -1,30 +1,42 @@
 # Football Predictor AI Agent
 
-An AI-powered application that analyzes and predicts the outcomes of football (soccer) matches by analyzing the latest form of both the home and away teams. It generates insights such as the most common factors, scoring percentages, and overall predictions based on historical match data.
+A statistical analysis and probabilistic pattern mining engine designed to predict the outcomes of football (soccer) matches. **This is not an ML-first project.** It focuses on extracting high-confidence deterministic insights from historical performance by analyzing specific home and away context.
 
-## Features
+## 🎯 Primary Objective
 
-- **Home Team Analysis:** Evaluates the last 10 **home** games played by the home team.
-- **Away Team Analysis:** Evaluates the last 10 **away** games played by the away team.
-- **Common Factor Extraction:** Identifies the highest probability events based on recent matches:
-  - e.g., "Over 8.5 corners"
-  - e.g., "Both Teams to Score (BTTS) = Yes"
-  - e.g., "Home Win (Home team hasn't lost in 10 home matches)"
-  - e.g., "Away team scored in every game"
-  - e.g., "Away team conceded in every game"
-- **AI-Powered Insights:** Uses Large Language Models (LLMs) to generate human-readable explanations and percentage-based probabilities for predicted outcomes.
+For any given match: **Home Team A vs Away Team B in League L**
+
+The system will:
+
+1. **Analyze Conditional History:**
+   - Evaluates *all Home matches* of Team A in League L.
+   - Evaluates *all Away matches* of Team B in League L.
+
+2. **Extract High-Confidence Patterns:**
+   Identifies recurring events across the following markets:
+   - **BTTS** (Both Teams to Score)
+   - **Over/Under Goals** (Full Time & Half Time - e.g., O/U 1.5, O/U 2.5)
+   - **Corners** (e.g., Over 8.5)
+   - **Cards** (Yellow/Red limits)
+   - **Win/Draw/Loss**
+   - **Team to Score** (Clean sheets, failed to score)
+   - **First Half Events** (Goals, corners, cards in 1H)
+
+3. **Compute Probabilities & Confidence:**
+   - *Most common factors for the Home Team (Team A)*
+   - *Most common factors for the Away Team (Team B)*
+   - *Their intersection* (Where patterns from both teams align)
+   - *Confidence Percentage* for the predicted outcomes based on historical occurrences.
 
 ## Project Structure
 
-This project is divided into several modules:
-- Data fetching (e.g., integrating with a Football API for live and historical match stats).
-- Data processing and feature engineering (calculating corners, goals, win/loss streaks).
-- AI/LLM Integration (formatting data to prompt an LLM or using an ML model to extract common factors).
-- Output representation (CLI or Web UI).
+This project uses deterministic, probabilistic pattern mining + statistical filtering to identify the best betting angles or match predictions.
+- **Data Fetching:** Fetching league-specific home and away matches from a Football API.
+- **Statistical Filtering Engine:** Computing percentages and filtering events that surpass a high-confidence threshold (e.g., > 80% occurrence).
+- **Pattern Intersection Finder:** Cross-referencing Team A's home trends with Team B's away trends.
+- **LLM/AI Formatter (Optional):** Using a Large Language Model strictly to convert the discovered *statistical* intersections into an easily readable Natural Language report, *not* to guess the outcome.
 
 ## Setup & Installation
-
-*(Coming soon when the codebase is initialized)*
 
 1. Clone the repository:
    ```bash
@@ -39,13 +51,3 @@ This project is divided into several modules:
    ```bash
    python main.py
    ```
-
-## Development Tasks / Issues
-
-The project development is tracked using GitHub Issues. Key implementation phases include:
-
-1. **Issue 1: Data Collection & API Integration**
-2. **Issue 2: Data Processing & Feature Engineering**
-3. **Issue 3: Most Common Factor Analysis Engine**
-4. **Issue 4: AI/LLM Integration for Natural Language Output**
-5. **Issue 5: Testing and Validation**
