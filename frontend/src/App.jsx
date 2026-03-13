@@ -4,7 +4,7 @@ import MatchRow from './components/MatchRow';
 import MatchDetail from './components/MatchDetail';
 import DatePicker from './components/DatePicker';
 
-const API = "http://127.0.0.1:8000/api";
+const API = "/api";
 
 const pad = (n) => String(n).padStart(2, '0');
 const fmtDate = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;

@@ -1,3 +1,13 @@
+---
+title: Football Prediction
+emoji: ⚽
+colorFrom: green
+colorTo: blue
+sdk: docker
+pinned: false
+app_port: 7860
+---
+
 # Football Predictor AI Agent
 
 A statistical analysis and probabilistic pattern mining engine designed to predict the outcomes of football (soccer) matches. **This is not an ML-first project.** It focuses on extracting high-confidence deterministic insights from historical performance by analyzing specific home and away context.

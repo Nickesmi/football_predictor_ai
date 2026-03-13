@@ -12,8 +12,11 @@ import json
 import math
 import urllib.request
 from datetime import date, datetime, timezone
+from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from src.config import logger, APIFOOTBALL_API_KEY
 from src.data.api_football_fetcher import APIFootballFetcher
@@ -401,3 +404,23 @@ def analyze_match(fixture_id: str, home: str = "", away: str = "", league: str =
     except Exception as e:
         logger.error(f"Error analyzing fixture {fixture_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Serve built React frontend ───────────────────────────
+_STATIC_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+if _STATIC_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(_STATIC_DIR / "assets")), name="assets")
+
+    @app.get("/", include_in_schema=False)
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def serve_spa(full_path: str = ""):
+        # Don't intercept /api/* routes
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404)
+        index = _STATIC_DIR / "index.html"
+        if not index.exists():
+            raise HTTPException(status_code=500, detail="Frontend build not found")
+        return FileResponse(str(index))
+else:
+    logger.warning("Frontend build directory not found at %s — SPA will not be served", _STATIC_DIR)
