@@ -46,6 +46,8 @@ LEAGUE_PROFILES = {
     "Bundesliga":        LeagueProfile(1.65, 1.30, 2.95),
     "Ligue 1":           LeagueProfile(1.50, 1.10, 2.60),
     "Champions League":  LeagueProfile(1.55, 1.25, 2.80),
+    "Süper Lig":         LeagueProfile(1.48, 1.25, 2.73),
+    "Eredivisie":        LeagueProfile(1.70, 1.40, 3.10),
     "default":           LeagueProfile(1.50, 1.15, 2.65),
 }
 
@@ -111,17 +113,26 @@ class PoissonPrediction:
             },
             "goals_markets": [
                 {"market": "Over 0.5 Goals", "probability": round(self.over_0_5, 1)},
+                {"market": "Under 0.5 Goals", "probability": round(self.under_0_5, 1)},
                 {"market": "Over 1.5 Goals", "probability": round(self.over_1_5, 1)},
+                {"market": "Under 1.5 Goals", "probability": round(self.under_1_5, 1)},
                 {"market": "Over 2.5 Goals", "probability": round(self.over_2_5, 1)},
-                {"market": "Over 3.5 Goals", "probability": round(self.over_3_5, 1)},
-                {"market": "Over 4.5 Goals", "probability": round(self.over_4_5, 1)},
                 {"market": "Under 2.5 Goals", "probability": round(self.under_2_5, 1)},
+                {"market": "Over 3.5 Goals", "probability": round(self.over_3_5, 1)},
+                {"market": "Under 3.5 Goals", "probability": round(self.under_3_5, 1)},
+                {"market": "Over 4.5 Goals", "probability": round(self.over_4_5, 1)},
+                {"market": "Under 4.5 Goals", "probability": round(100 - self.over_4_5, 1)},
             ],
             "btts": {"yes": round(self.btts_yes, 1), "no": round(self.btts_no, 1)},
             "result": {
                 "home_win": round(self.home_win, 1),
                 "draw": round(self.draw, 1),
                 "away_win": round(self.away_win, 1),
+            },
+            "double_chance": {
+                "home_or_draw": round(self.home_win + self.draw, 1),
+                "away_or_draw": round(self.away_win + self.draw, 1),
+                "home_or_away": round(self.home_win + self.away_win, 1)
             },
             "top_scorelines": self.top_scorelines[:5],
         }

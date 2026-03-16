@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader2, AlertCircle, BarChart3, TrendingUp, Info, CheckCircle2, ShieldAlert, Target, Zap, Trophy, Shield, Crosshair, Flame, Brain, Cpu, Activity, Sigma, CornerUpRight, CreditCard } from 'lucide-react';
+import { Loader2, AlertCircle, BarChart3, TrendingUp, Info, CheckCircle2, ShieldAlert, Target, Zap, Trophy, Shield, Crosshair, Flame, Brain, Cpu, Activity, Sigma, CornerUpRight, CreditCard, Dices } from 'lucide-react';
 
 /* ── Helpers ──────────────────────────────────────── */
 
@@ -93,6 +93,55 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
           </div>
         </div>
       </div>
+      
+      {/* ── Top Confident Picks ──────────────────────── */}
+      {analysis.top_10_confident && analysis.top_10_confident.length > 0 && (
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Flame className="w-5 h-5 text-amber-500" />
+              <h3 className="text-sm font-bold tracking-[0.15em] text-amber-400 uppercase">Top 10 Confident Picks</h3>
+            </div>
+          </div>
+
+          <div className="bg-surface-2 border border-amber-500/20 rounded-xl overflow-hidden shadow-lg shadow-amber-500/5">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-surface-1 border-b border-white/5">
+                    <th className="py-3 px-4 text-xs font-semibold text-slate-400 tracking-wider">#</th>
+                    <th className="py-3 px-4 text-xs font-semibold text-slate-400 tracking-wider">MARKET</th>
+                    <th className="py-3 px-4 text-xs font-semibold text-slate-400 tracking-wider text-right">CONFIDENCE (%)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {analysis.top_10_confident.map((pick, idx) => (
+                    <tr key={idx} className="hover:bg-white/5 transition-colors group">
+                      <td className="py-3 px-4 text-xs text-slate-500 font-mono">
+                        {String(idx + 1).padStart(2, '0')}
+                      </td>
+                      <td className="py-3 px-4 text-sm font-medium text-white flex items-center gap-2">
+                        {pick.market}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-3">
+                          <div className="w-24 h-2 bg-black/40 rounded-full overflow-hidden border border-white/5">
+                            <div 
+                              className={`h-full bg-gradient-to-r ${getBarColor(pick.probability)} rounded-full`} 
+                              style={{ width: `${Math.min(pick.probability, 100)}%` }} 
+                            />
+                          </div>
+                          <span className="text-sm font-mono font-bold text-emerald-400 w-12">{pick.probability.toFixed(1)}%</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Poisson Expected Goals (xG) Panel ─────────── */}
       {poisson && (

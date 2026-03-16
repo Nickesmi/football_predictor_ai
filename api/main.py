@@ -52,10 +52,11 @@ TOP_LEAGUES = {
     34: "Ligue 1",
     7: "Champions League",
     679: "Europa League",
-    325: "Eredivisie",
+    37: "Eredivisie",
     238: "Primeira Liga",
     955: "Saudi Pro League",
-    37: "Süper Lig",
+    52: "Süper Lig",
+    325: "Brasileirão",
     242: "MLS",
 }
 
@@ -71,6 +72,10 @@ LEAGUE_NAME_MAP = {
     "UEFA Champions League": "Champions League",
     "Europa League": "Champions League",
     "UEFA Europa League": "Champions League",
+    "Süper Lig": "Süper Lig",
+    "Trendyol Süper Lig": "Süper Lig",
+    "Eredivisie": "Eredivisie",
+    "VriendenLoterij Eredivisie": "Eredivisie",
 }
 
 
@@ -124,10 +129,15 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
         "expected_total": round(total_expected_corners, 1),
         "markets": [
             {"market": "Over 7.5 Corners", "probability": round(_poisson_over(total_expected_corners, 7), 1)},
+            {"market": "Under 7.5 Corners", "probability": round(100 - _poisson_over(total_expected_corners, 7), 1)},
             {"market": "Over 8.5 Corners", "probability": round(_poisson_over(total_expected_corners, 8), 1)},
+            {"market": "Under 8.5 Corners", "probability": round(100 - _poisson_over(total_expected_corners, 8), 1)},
             {"market": "Over 9.5 Corners", "probability": round(_poisson_over(total_expected_corners, 9), 1)},
+            {"market": "Under 9.5 Corners", "probability": round(100 - _poisson_over(total_expected_corners, 9), 1)},
             {"market": "Over 10.5 Corners", "probability": round(_poisson_over(total_expected_corners, 10), 1)},
+            {"market": "Under 10.5 Corners", "probability": round(100 - _poisson_over(total_expected_corners, 10), 1)},
             {"market": "Over 11.5 Corners", "probability": round(_poisson_over(total_expected_corners, 11), 1)},
+            {"market": "Under 11.5 Corners", "probability": round(100 - _poisson_over(total_expected_corners, 11), 1)},
         ],
     }
     
@@ -142,10 +152,15 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
         "expected_total": round(total_expected_cards, 1),
         "markets": [
             {"market": "Over 2.5 Cards", "probability": round(_poisson_over(total_expected_cards, 2), 1)},
+            {"market": "Under 2.5 Cards", "probability": round(100 - _poisson_over(total_expected_cards, 2), 1)},
             {"market": "Over 3.5 Cards", "probability": round(_poisson_over(total_expected_cards, 3), 1)},
+            {"market": "Under 3.5 Cards", "probability": round(100 - _poisson_over(total_expected_cards, 3), 1)},
             {"market": "Over 4.5 Cards", "probability": round(_poisson_over(total_expected_cards, 4), 1)},
+            {"market": "Under 4.5 Cards", "probability": round(100 - _poisson_over(total_expected_cards, 4), 1)},
             {"market": "Over 5.5 Cards", "probability": round(_poisson_over(total_expected_cards, 5), 1)},
+            {"market": "Under 5.5 Cards", "probability": round(100 - _poisson_over(total_expected_cards, 5), 1)},
             {"market": "Over 6.5 Cards", "probability": round(_poisson_over(total_expected_cards, 6), 1)},
+            {"market": "Under 6.5 Cards", "probability": round(100 - _poisson_over(total_expected_cards, 6), 1)},
         ],
     }
     
@@ -210,6 +225,45 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
     # Step 7: Strongest edge ranking
     value_selections.sort(key=lambda v: v["value_edge"], reverse=True)
     
+    # Step 8: Top Confident Picks (>70%)
+    all_markets = []
+    # Add Goals Markets
+    all_markets.extend([
+        {"market": "Over 0.5 Goals", "probability": round(pred.over_0_5, 1)},
+        {"market": "Under 0.5 Goals", "probability": round(pred.under_0_5, 1)},
+        {"market": "Over 1.5 Goals", "probability": round(pred.over_1_5, 1)},
+        {"market": "Under 1.5 Goals", "probability": round(pred.under_1_5, 1)},
+        {"market": "Over 2.5 Goals", "probability": round(pred.over_2_5, 1)},
+        {"market": "Under 2.5 Goals", "probability": round(pred.under_2_5, 1)},
+        {"market": "Over 3.5 Goals", "probability": round(pred.over_3_5, 1)},
+        {"market": "Under 3.5 Goals", "probability": round(pred.under_3_5, 1)},
+        {"market": "Over 4.5 Goals", "probability": round(pred.over_4_5, 1)},
+        {"market": "Under 4.5 Goals", "probability": round(100 - pred.over_4_5, 1)},
+        {"market": "BTTS - Yes", "probability": round(pred.btts_yes, 1)},
+        {"market": "BTTS - No", "probability": round(pred.btts_no, 1)}
+    ])
+    
+    max_result = max(pred.home_win, pred.draw, pred.away_win)
+    if max_result != pred.away_win:
+        all_markets.append({"market": f"1X ({home_name} or Draw)", "probability": round(pred.home_win + pred.draw, 1)})
+    if max_result != pred.home_win:
+        all_markets.append({"market": f"X2 ({away_name} or Draw)", "probability": round(pred.away_win + pred.draw, 1)})
+    if max_result != pred.draw:
+        all_markets.append({"market": "12 (Any Team to Win)", "probability": round(pred.home_win + pred.away_win, 1)})
+    # Add Corners Markets
+    all_markets.extend(corners_data["markets"])
+    # Add Cards Markets
+    all_markets.extend(cards_data["markets"])
+    
+    import random
+    
+    # Sort all markets by probability descending to find the top 10 most confident
+    all_markets.sort(key=lambda x: x["probability"], reverse=True)
+    top_10_confident = all_markets[:10]
+    
+    # Shuffle the top 10 list so they don't appear in strictly descending order
+    random.shuffle(top_10_confident)
+    
     return {
         "disclaimer": f"Hybrid Engine v5 — Poisson (λ={pred.lambda_home:.2f}+{pred.lambda_away:.2f}) + XGBoost | {league_key}",
         "poisson": pred.to_dict(),
@@ -217,6 +271,7 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
         "cards": cards_data,
         "xgboost_predictions": xgb_pred.to_dict().get("predictions", []),
         "value_selections": value_selections,
+        "top_10_confident": top_10_confident,
         "averages": {
             "home": {
                 "avg_goals_scored": home_stats.scored,
