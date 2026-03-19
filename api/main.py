@@ -263,8 +263,8 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
     
     import random
     
-    # We now return ALL markets with confidence strictly higher than 70%
-    top_6_confident = [m for m in all_markets if m["probability"] > 70]
+    # We now return ALL markets with confidence strictly higher than 75%
+    top_6_confident = [m for m in all_markets if m["probability"] > 75]
     
     # Sort them descending so the absolutely most confident are at the top
     top_6_confident.sort(key=lambda x: x["probability"], reverse=True)
