@@ -53,9 +53,6 @@ TOP_LEAGUES = {
     7: "Champions League",
     679: "Europa League",
     37: "Eredivisie",
-    238: "Primeira Liga",
-    955: "Saudi Pro League",
-    325: "Brasileirão",
     242: "MLS",
     155: "Liga Profesional",
 }
