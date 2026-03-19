@@ -5,7 +5,7 @@ import MatchDetail from './components/MatchDetail';
 import DatePicker from './components/DatePicker';
 import ResultsTracker from './components/ResultsTracker';
 
-const API = "http://127.0.0.1:8000/api";
+const API = (import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000") + "/api";
 
 const pad = (n) => String(n).padStart(2, '0');
 const fmtDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;

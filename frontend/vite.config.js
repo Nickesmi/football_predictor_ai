@@ -8,4 +8,7 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  // When deploying to GitHub Pages the site lives under /<repo-name>/.
+  // VITE_BASE_PATH is set in the CI workflow; defaults to '/' for local dev.
+  base: process.env.VITE_BASE_PATH ?? '/',
 })

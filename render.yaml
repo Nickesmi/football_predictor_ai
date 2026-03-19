@@ -1,0 +1,32 @@
+# Render.com deployment configuration
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. Sign in at https://render.com with your GitHub account.
+# 2. Click "New +" → "Blueprint" and select this repository.
+#    Render will detect this file and create the service automatically.
+# 3. Set the required environment variable:
+#      APIFOOTBALL_API_KEY  →  your key from https://www.api-football.com/
+# 4. After the first deploy, copy the public URL (e.g.
+#    https://football-predictor-api.onrender.com) and add it as the
+#    VITE_API_URL secret in GitHub: Settings → Secrets → Actions.
+
+services:
+  - type: web
+    name: football-predictor-api
+    runtime: python
+    region: oregon          # Change to "frankfurt" for a European edge
+    plan: free              # Free tier – always available via GitHub Education
+    rootDir: .
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: APIFOOTBALL_API_KEY
+        sync: false          # You will paste the value in the Render dashboard
+      - key: APIFOOTBALL_HOST
+        value: v3.football.api-sports.io
+      - key: LOG_LEVEL
+        value: INFO
+      - key: CACHE_TTL_SECONDS
+        value: "21600"
+      - key: API_RATE_LIMIT_PER_MINUTE
+        value: "10"
