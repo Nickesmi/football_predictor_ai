@@ -263,9 +263,8 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
     
     import random
     
-    # Top 5 + Major European leagues get 6 picks. Secondary/Minor leagues get 3 picks.
-    major_leagues = ["Premier League", "LaLiga", "Serie A", "Bundesliga", "Ligue 1", "Champions League", "Europa League", "Conference League"]
-    num_picks = 6 if league_key in major_leagues else 3
+    # We now always return exactly 6 top picks for EVERY match, across all leagues
+    num_picks = 6
     
     # Sort all markets by probability descending to find the top confident
     all_markets.sort(key=lambda x: x["probability"], reverse=True)
