@@ -59,8 +59,6 @@ TOP_LEAGUES = {
     325: "Brasileirão",
     242: "MLS",
     155: "Liga Profesional",
-    17015: "Conference League",
-    498: "CONCACAF Champions Cup",
 }
 
 # Map SofaScore league names → our profile keys
@@ -81,9 +79,6 @@ LEAGUE_NAME_MAP = {
     "VriendenLoterij Eredivisie": "Eredivisie",
     "Liga Profesional de Fútbol": "Liga Profesional",
     "Liga Profesional": "Liga Profesional",
-    "UEFA Conference League": "Conference League",
-    "UEFA Europa Conference League": "Conference League",
-    "CONCACAF Champions Cup": "Champions League",
 }
 
 
