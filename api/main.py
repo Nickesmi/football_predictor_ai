@@ -54,10 +54,7 @@ TOP_LEAGUES = {
     679: "Europa League",
     37: "Eredivisie",
     238: "Primeira Liga",
-    955: "Saudi Pro League",
-    325: "Brasileirão",
-    242: "MLS",
-    155: "Liga Profesional",
+    238: "Primeira Liga",
 }
 
 # Map SofaScore league names → our profile keys
