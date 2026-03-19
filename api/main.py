@@ -60,6 +60,7 @@ TOP_LEAGUES = {
     242: "MLS",
     155: "Liga Profesional",
     17015: "Conference League",
+    498: "CONCACAF Champions Cup",
 }
 
 # Map SofaScore league names → our profile keys
@@ -82,6 +83,7 @@ LEAGUE_NAME_MAP = {
     "Liga Profesional": "Liga Profesional",
     "UEFA Conference League": "Conference League",
     "UEFA Europa Conference League": "Conference League",
+    "CONCACAF Champions Cup": "Champions League",
 }
 
 
