@@ -58,6 +58,8 @@ TOP_LEAGUES = {
     52: "Süper Lig",
     325: "Brasileirão",
     242: "MLS",
+    155: "Liga Profesional",
+    17015: "Conference League",
 }
 
 # Map SofaScore league names → our profile keys
@@ -76,6 +78,10 @@ LEAGUE_NAME_MAP = {
     "Trendyol Süper Lig": "Süper Lig",
     "Eredivisie": "Eredivisie",
     "VriendenLoterij Eredivisie": "Eredivisie",
+    "Liga Profesional de Fútbol": "Liga Profesional",
+    "Liga Profesional": "Liga Profesional",
+    "UEFA Conference League": "Conference League",
+    "UEFA Europa Conference League": "Conference League",
 }
 
 
@@ -257,12 +263,16 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
     
     import random
     
-    # Sort all markets by probability descending to find the top 10 most confident
-    all_markets.sort(key=lambda x: x["probability"], reverse=True)
-    top_10_confident = all_markets[:10]
+    # Top 5 + Major European leagues get 6 picks. Secondary/Minor leagues get 3 picks.
+    major_leagues = ["Premier League", "LaLiga", "Serie A", "Bundesliga", "Ligue 1", "Champions League", "Europa League", "Conference League"]
+    num_picks = 6 if league_key in major_leagues else 3
     
-    # Shuffle the top 10 list so they don't appear in strictly descending order
-    random.shuffle(top_10_confident)
+    # Sort all markets by probability descending to find the top confident
+    all_markets.sort(key=lambda x: x["probability"], reverse=True)
+    top_6_confident = all_markets[:num_picks]
+    
+    # Shuffle the list so they don't appear in strictly descending order
+    random.shuffle(top_6_confident)
     
     return {
         "disclaimer": f"Hybrid Engine v5 — Poisson (λ={pred.lambda_home:.2f}+{pred.lambda_away:.2f}) + XGBoost | {league_key}",
@@ -271,7 +281,7 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
         "cards": cards_data,
         "xgboost_predictions": xgb_pred.to_dict().get("predictions", []),
         "value_selections": value_selections,
-        "top_10_confident": top_10_confident,
+        "top_6_confident": top_6_confident,
         "averages": {
             "home": {
                 "avg_goals_scored": home_stats.scored,
@@ -410,14 +420,25 @@ def get_today_fixtures():
 
 
 @app.get("/api/analysis/match/{fixture_id}")
-def analyze_match(fixture_id: str, home: str = "", away: str = "", league: str = "Premier League"):
+def analyze_match(
+    fixture_id: str, 
+    home: str = "", 
+    away: str = "", 
+    league: str = "Premier League",
+    status: str = "",
+    start_time: str = ""
+):
     """Per-match prediction. Every match gets UNIQUE probabilities."""
     home_name = home or "Unknown Home"
     away_name = away or "Unknown Away"
     
     if not APIFOOTBALL_API_KEY:
         logger.info(f"Per-match engine: {home_name} vs {away_name} [{league}]")
-        analysis = _compute_match_analysis(home_name, away_name, league)
+        analysis = _compute_match_analysis(
+            home_name=home_name, 
+            away_name=away_name, 
+            league_name=league
+        )
         analysis["match"] = {
             "home_team": home_name,
             "away_team": away_name,
@@ -456,3 +477,267 @@ def analyze_match(fixture_id: str, home: str = "", away: str = "", league: str =
     except Exception as e:
         logger.error(f"Error analyzing fixture {fixture_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Results Verification ──────────────────────────
+
+def _fetch_event_statistics(event_id: str) -> dict:
+    """Fetch match statistics (corners, cards) from SofaScore for a finished event."""
+    url = f"https://api.sofascore.com/api/v1/event/{event_id}/statistics"
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Accept": "application/json",
+        "Referer": "https://www.sofascore.com/",
+    })
+    try:
+        resp = urllib.request.urlopen(req, timeout=15)
+        data = json.loads(resp.read())
+        statistics = data.get("statistics", [])
+
+        total_corners = 0
+        yellow_cards = 0
+        red_cards = 0
+
+        # SofaScore returns statistics grouped by period (ALL, 1ST, 2ND)
+        for period in statistics:
+            period_name = period.get("period", "")
+            if period_name != "ALL":
+                continue
+            groups = period.get("groups", [])
+            for group in groups:
+                group_name = group.get("groupName", "")
+                items = group.get("statisticsItems", [])
+                for item in items:
+                    stat_name = item.get("name", "")
+                    home_val = item.get("home", "0")
+                    away_val = item.get("away", "0")
+                    # Parse values (they can be strings like "5" or "43%")
+                    try:
+                        h = int(str(home_val).replace("%", ""))
+                        a = int(str(away_val).replace("%", ""))
+                    except (ValueError, TypeError):
+                        continue
+
+                    if stat_name == "Corner kicks":
+                        total_corners = h + a
+                    elif stat_name in ("Yellow cards", "Total yellow cards"):
+                        yellow_cards += h + a
+                    elif stat_name in ("Red cards", "Total red cards"):
+                        red_cards += h + a
+
+        total_cards = yellow_cards + red_cards
+        return {"corners": total_corners, "cards": total_cards, "yellow_cards": yellow_cards, "red_cards": red_cards}
+    except Exception as e:
+        logger.warning(f"Could not fetch stats for event {event_id}: {e}")
+        return {"corners": None, "cards": None, "yellow_cards": None, "red_cards": None}
+
+
+def _evaluate_prediction(pick: dict, home_goals: int, away_goals: int,
+                          total_corners: int | None, total_cards: int | None) -> dict:
+    """
+    Evaluate a single predicted market against actual match results.
+    Returns the pick dict enriched with 'result': True/False/None.
+    """
+    market = pick.get("market", "")
+    total_goals = home_goals + away_goals
+    result = None  # None = cannot determine (e.g., missing stats)
+
+    # ── Goals markets ──
+    if market == "Over 0.5 Goals":
+        result = total_goals > 0.5
+    elif market == "Under 0.5 Goals":
+        result = total_goals < 0.5
+    elif market == "Over 1.5 Goals":
+        result = total_goals > 1.5
+    elif market == "Under 1.5 Goals":
+        result = total_goals < 1.5
+    elif market == "Over 2.5 Goals":
+        result = total_goals > 2.5
+    elif market == "Under 2.5 Goals":
+        result = total_goals < 2.5
+    elif market == "Over 3.5 Goals":
+        result = total_goals > 3.5
+    elif market == "Under 3.5 Goals":
+        result = total_goals < 3.5
+    elif market == "Over 4.5 Goals":
+        result = total_goals > 4.5
+    elif market == "Under 4.5 Goals":
+        result = total_goals < 4.5
+
+    # ── BTTS ──
+    elif market == "BTTS - Yes":
+        result = home_goals > 0 and away_goals > 0
+    elif market == "BTTS - No":
+        result = not (home_goals > 0 and away_goals > 0)
+
+    # ── 1X / X2 / 12 ──
+    elif "1X" in market:
+        result = home_goals >= away_goals  # Home win or draw
+    elif "X2" in market:
+        result = away_goals >= home_goals  # Away win or draw
+    elif "12" in market:
+        result = home_goals != away_goals  # Any team wins (not draw)
+
+    # ── Corners ──
+    elif "Corners" in market:
+        if total_corners is not None:
+            if market == "Over 7.5 Corners":
+                result = total_corners > 7.5
+            elif market == "Under 7.5 Corners":
+                result = total_corners < 7.5
+            elif market == "Over 8.5 Corners":
+                result = total_corners > 8.5
+            elif market == "Under 8.5 Corners":
+                result = total_corners < 8.5
+            elif market == "Over 9.5 Corners":
+                result = total_corners > 9.5
+            elif market == "Under 9.5 Corners":
+                result = total_corners < 9.5
+            elif market == "Over 10.5 Corners":
+                result = total_corners > 10.5
+            elif market == "Under 10.5 Corners":
+                result = total_corners < 10.5
+            elif market == "Over 11.5 Corners":
+                result = total_corners > 11.5
+            elif market == "Under 11.5 Corners":
+                result = total_corners < 11.5
+
+    # ── Cards ──
+    elif "Cards" in market:
+        if total_cards is not None:
+            if market == "Over 2.5 Cards":
+                result = total_cards > 2.5
+            elif market == "Under 2.5 Cards":
+                result = total_cards < 2.5
+            elif market == "Over 3.5 Cards":
+                result = total_cards > 3.5
+            elif market == "Under 3.5 Cards":
+                result = total_cards < 3.5
+            elif market == "Over 4.5 Cards":
+                result = total_cards > 4.5
+            elif market == "Under 4.5 Cards":
+                result = total_cards < 4.5
+            elif market == "Over 5.5 Cards":
+                result = total_cards > 5.5
+            elif market == "Under 5.5 Cards":
+                result = total_cards < 5.5
+            elif market == "Over 6.5 Cards":
+                result = total_cards > 6.5
+            elif market == "Under 6.5 Cards":
+                result = total_cards < 6.5
+
+    return {
+        **pick,
+        "result": result,
+    }
+
+
+@app.get("/api/results/{date_str}")
+def get_results_verification(date_str: str):
+    """
+    For all finished matches on a given date, regenerate predictions
+    and compare them against actual results.
+    Returns per-match breakdown of correct/wrong top-6 picks.
+    """
+    events = _fetch_sofascore_events(date_str)
+    if not events:
+        return {"date": date_str, "matches": [], "summary": {}}
+
+    results = []
+    total_correct = 0
+    total_wrong = 0
+    total_unknown = 0
+    total_picks = 0
+
+    for ev in events:
+        ut = ev.get("tournament", {}).get("uniqueTournament", {})
+        ut_id = ut.get("id", 0)
+        if ut_id not in TOP_LEAGUES:
+            continue
+
+        status = ev.get("status", {})
+        if status.get("type") != "finished":
+            continue
+
+        fixture = _sofascore_to_fixture(ev)
+        home_goals = fixture.get("home_goals")
+        away_goals = fixture.get("away_goals")
+
+        if home_goals is None or away_goals is None:
+            continue
+
+        home_name = fixture["home_team"]["name"]
+        away_name = fixture["away_team"]["name"]
+        league_name = fixture["league"]["name"]
+        event_id = fixture["id"]
+
+        # Fetch actual match statistics (corners, cards)
+        stats = _fetch_event_statistics(event_id)
+        total_corners = stats.get("corners")
+        total_cards = stats.get("cards")
+        yellow_cards = stats.get("yellow_cards")
+        red_cards = stats.get("red_cards")
+
+        # Regenerate predictions for this match
+        try:
+            analysis = _compute_match_analysis(home_name, away_name, league_name)
+            top_picks = analysis.get("top_6_confident", [])
+        except Exception as e:
+            logger.warning(f"Could not compute analysis for {home_name} vs {away_name}: {e}")
+            continue
+
+        # Evaluate each pick
+        evaluated_picks = []
+        match_correct = 0
+        match_wrong = 0
+        match_unknown = 0
+
+        for pick in top_picks:
+            evaluated = _evaluate_prediction(pick, home_goals, away_goals, total_corners, total_cards)
+            evaluated_picks.append(evaluated)
+            if evaluated["result"] is True:
+                match_correct += 1
+            elif evaluated["result"] is False:
+                match_wrong += 1
+            else:
+                match_unknown += 1
+
+        total_correct += match_correct
+        total_wrong += match_wrong
+        total_unknown += match_unknown
+        total_picks += len(evaluated_picks)
+
+        results.append({
+            "fixture": fixture,
+            "actual": {
+                "home_goals": home_goals,
+                "away_goals": away_goals,
+                "total_goals": home_goals + away_goals,
+                "total_corners": total_corners,
+                "total_cards": total_cards,
+                "yellow_cards": yellow_cards,
+                "red_cards": red_cards,
+            },
+            "picks": evaluated_picks,
+            "summary": {
+                "correct": match_correct,
+                "wrong": match_wrong,
+                "unknown": match_unknown,
+                "total": len(evaluated_picks),
+            },
+        })
+
+    accuracy = round((total_correct / total_picks * 100), 1) if total_picks > 0 else 0.0
+
+    return {
+        "date": date_str,
+        "matches": results,
+        "summary": {
+            "total_matches": len(results),
+            "total_picks": total_picks,
+            "total_correct": total_correct,
+            "total_wrong": total_wrong,
+            "total_unknown": total_unknown,
+            "accuracy_pct": accuracy,
+        },
+    }

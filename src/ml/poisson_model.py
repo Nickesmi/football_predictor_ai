@@ -48,6 +48,7 @@ LEAGUE_PROFILES = {
     "Champions League":  LeagueProfile(1.55, 1.25, 2.80),
     "Süper Lig":         LeagueProfile(1.48, 1.25, 2.73),
     "Eredivisie":        LeagueProfile(1.70, 1.40, 3.10),
+    "Liga Profesional":  LeagueProfile(1.13, 0.82, 1.95),
     "default":           LeagueProfile(1.50, 1.15, 2.65),
 }
 
@@ -88,6 +89,13 @@ class PoissonPrediction:
     away_win: float = 0.0
     home_clean_sheet: float = 0.0
     away_clean_sheet: float = 0.0
+
+    # First Half specific
+    fh_over_0_5: float = 0.0
+    fh_over_1_5: float = 0.0
+    fh_home_win: float = 0.0
+    fh_draw: float = 0.0
+    fh_away_win: float = 0.0
 
     # Top 5 most likely scorelines
     top_scorelines: list[dict] = field(default_factory=list)
@@ -133,6 +141,19 @@ class PoissonPrediction:
                 "home_or_draw": round(self.home_win + self.draw, 1),
                 "away_or_draw": round(self.away_win + self.draw, 1),
                 "home_or_away": round(self.home_win + self.away_win, 1)
+            },
+            "first_half": {
+                "goals_markets": [
+                    {"market": "Over 0.5 FH Goals", "probability": round(self.fh_over_0_5, 1)},
+                    {"market": "Under 0.5 FH Goals", "probability": round(100 - self.fh_over_0_5, 1)},
+                    {"market": "Over 1.5 FH Goals", "probability": round(self.fh_over_1_5, 1)},
+                    {"market": "Under 1.5 FH Goals", "probability": round(100 - self.fh_over_1_5, 1)},
+                ],
+                "result": {
+                    "home_win": round(self.fh_home_win, 1),
+                    "draw": round(self.fh_draw, 1),
+                    "away_win": round(self.fh_away_win, 1),
+                }
             },
             "top_scorelines": self.top_scorelines[:5],
         }
@@ -257,6 +278,28 @@ class PoissonGoalModel:
             for (h, a), p in scorelines
         ]
 
+        # ── First Half Calculations ──
+        fh_matrix = {}
+        fh_lam_h = lambda_home * 0.45
+        fh_lam_a = lambda_away * 0.45
+            
+        for h in range(self.MAX_GOALS + 1):
+            for a in range(self.MAX_GOALS + 1):
+                fh_matrix[(h, a)] = _poisson_pmf(h, fh_lam_h) * _poisson_pmf(a, fh_lam_a)
+
+        # Calculate FH market probabilities from fh_matrix
+        fh_over_0_5_p = sum(fh_matrix[(h, a)] for h in range(self.MAX_GOALS + 1)
+                         for a in range(self.MAX_GOALS + 1) if h + a > 0.5) * 100
+        fh_over_1_5_p = sum(fh_matrix[(h, a)] for h in range(self.MAX_GOALS + 1)
+                         for a in range(self.MAX_GOALS + 1) if h + a > 1.5) * 100
+        
+        fh_home_win_p = sum(fh_matrix[(h, a)] for h in range(self.MAX_GOALS + 1)
+                         for a in range(self.MAX_GOALS + 1) if h > a) * 100
+        fh_draw_p = sum(fh_matrix[(h, a)] for h in range(self.MAX_GOALS + 1)
+                     for a in range(self.MAX_GOALS + 1) if h == a) * 100
+        fh_away_win_p = sum(fh_matrix[(h, a)] for h in range(self.MAX_GOALS + 1)
+                         for a in range(self.MAX_GOALS + 1) if h < a) * 100
+
         return PoissonPrediction(
             home_team=home_team,
             away_team=away_team,
@@ -279,6 +322,11 @@ class PoissonGoalModel:
             away_win=away_win_p,
             home_clean_sheet=home_cs,
             away_clean_sheet=away_cs,
+            fh_over_0_5=fh_over_0_5_p,
+            fh_over_1_5=fh_over_1_5_p,
+            fh_home_win=fh_home_win_p,
+            fh_draw=fh_draw_p,
+            fh_away_win=fh_away_win_p,
             top_scorelines=top_scores,
             home_attack_strength=home_str.attack_strength,
             home_defense_weakness=home_str.defense_weakness,

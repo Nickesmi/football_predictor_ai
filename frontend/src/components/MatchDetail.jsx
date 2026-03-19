@@ -6,10 +6,10 @@ import { Loader2, AlertCircle, BarChart3, TrendingUp, Info, CheckCircle2, Shield
 const getConfBadge = (conf) => {
   const map = {
     "Very High": { icon: <CheckCircle2 className="w-3.5 h-3.5" />, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20" },
-    "High":      { icon: <TrendingUp className="w-3.5 h-3.5" />,   cls: "text-green-400 bg-green-400/10 border-green-400/20" },
-    "Medium":    { icon: <BarChart3 className="w-3.5 h-3.5" />,    cls: "text-yellow-500 bg-yellow-500/10 border-yellow-500/20" },
-    "Low":       { icon: <Info className="w-3.5 h-3.5" />,         cls: "text-orange-400 bg-orange-400/10 border-orange-400/20" },
-    "Very Low":  { icon: <ShieldAlert className="w-3.5 h-3.5" />,  cls: "text-red-400 bg-red-400/10 border-red-400/20" },
+    "High": { icon: <TrendingUp className="w-3.5 h-3.5" />, cls: "text-green-400 bg-green-400/10 border-green-400/20" },
+    "Medium": { icon: <BarChart3 className="w-3.5 h-3.5" />, cls: "text-yellow-500 bg-yellow-500/10 border-yellow-500/20" },
+    "Low": { icon: <Info className="w-3.5 h-3.5" />, cls: "text-orange-400 bg-orange-400/10 border-orange-400/20" },
+    "Very Low": { icon: <ShieldAlert className="w-3.5 h-3.5" />, cls: "text-red-400 bg-red-400/10 border-red-400/20" },
   };
   return map[conf] || map["Medium"];
 };
@@ -93,14 +93,14 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
           </div>
         </div>
       </div>
-      
+
       {/* ── Top Confident Picks ──────────────────────── */}
-      {analysis.top_10_confident && analysis.top_10_confident.length > 0 && (
+      {analysis.top_6_confident && analysis.top_6_confident.length > 0 && (
         <div className="mb-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Flame className="w-5 h-5 text-amber-500" />
-              <h3 className="text-sm font-bold tracking-[0.15em] text-amber-400 uppercase">Top 10 Confident Picks</h3>
+              <h3 className="text-sm font-bold tracking-[0.15em] text-amber-400 uppercase">Top {analysis.top_6_confident.length} Confident Picks</h3>
             </div>
           </div>
 
@@ -115,7 +115,7 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
-                  {analysis.top_10_confident.map((pick, idx) => (
+                  {analysis.top_6_confident.map((pick, idx) => (
                     <tr key={idx} className="hover:bg-white/5 transition-colors group">
                       <td className="py-3 px-4 text-xs text-slate-500 font-mono">
                         {String(idx + 1).padStart(2, '0')}
@@ -126,9 +126,9 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-3">
                           <div className="w-24 h-2 bg-black/40 rounded-full overflow-hidden border border-white/5">
-                            <div 
-                              className={`h-full bg-gradient-to-r ${getBarColor(pick.probability)} rounded-full`} 
-                              style={{ width: `${Math.min(pick.probability, 100)}%` }} 
+                            <div
+                              className={`h-full bg-gradient-to-r ${getBarColor(pick.probability)} rounded-full`}
+                              style={{ width: `${Math.min(pick.probability, 100)}%` }}
                             />
                           </div>
                           <span className="text-sm font-mono font-bold text-emerald-400 w-12">{pick.probability.toFixed(1)}%</span>
@@ -252,6 +252,48 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
               </div>
             </div>
           </div>
+
+          {/* First Half Predictions */}
+          {poisson.first_half && (
+            <div className="bg-surface-2 border border-border rounded-xl p-4 mt-6 mb-4">
+              <p className="text-[10px] text-cyan-400 uppercase tracking-wider font-bold mb-4 flex items-center gap-2">
+                <Dices className="w-3.5 h-3.5" /> First Half Predictions
+              </p>
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mb-3">Goals Range</p>
+                  <div className="space-y-2">
+                    {poisson.first_half.goals_markets.map((m, i) => (
+                      <div key={i} className="flex items-center gap-3">
+                        <span className="text-[11px] text-slate-400 font-medium w-[100px]">{m.market}</span>
+                        <div className="flex-1 h-1.5 bg-black/40 rounded-full overflow-hidden border border-white/5 mx-2">
+                          <div className={`h-full bg-gradient-to-r ${getBarColor(m.probability)} rounded-full`} style={{ width: `${Math.min(m.probability, 100)}%` }} />
+                        </div>
+                        <span className="text-[11px] font-mono font-bold text-white w-10 text-right">{m.probability.toFixed(0)}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mb-3">Match Result (FH)</p>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[11px] text-slate-400 truncate w-24" title={fixture.home_team.name}>{fixture.home_team.name}</span>
+                      <span className="text-[12px] font-mono font-bold text-emerald-400">{poisson.first_half.result.home_win.toFixed(1)}%</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-[11px] text-slate-400">Draw</span>
+                      <span className="text-[12px] font-mono font-bold text-yellow-400">{poisson.first_half.result.draw.toFixed(1)}%</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-[11px] text-slate-400 truncate w-24" title={fixture.away_team.name}>{fixture.away_team.name}</span>
+                      <span className="text-[12px] font-mono font-bold text-red-400">{poisson.first_half.result.away_win.toFixed(1)}%</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

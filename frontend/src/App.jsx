@@ -1,19 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Trophy, Loader2, AlertCircle, Calendar } from 'lucide-react';
+import { Trophy, Loader2, AlertCircle, Calendar, Target } from 'lucide-react';
 import MatchRow from './components/MatchRow';
 import MatchDetail from './components/MatchDetail';
 import DatePicker from './components/DatePicker';
+import ResultsTracker from './components/ResultsTracker';
 
 const API = "http://127.0.0.1:8000/api";
 
 const pad = (n) => String(n).padStart(2, '0');
-const fmtDate = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const fmtDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
 function App() {
   const [selectedDate, setSelectedDate] = useState(fmtDate(new Date()));
   const [fixtures, setFixtures] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [viewMode, setViewMode] = useState('predictions'); // 'predictions' | 'results'
 
   const [selectedFixtureId, setSelectedFixtureId] = useState(null);
   const [analysis, setAnalysis] = useState(null);
@@ -51,7 +53,7 @@ function App() {
     setAnalysisError(null);
     setAnalysisLoading(true);
     try {
-      const res = await fetch(`${API}/analysis/match/${fixture.id}?home=${encodeURIComponent(fixture.home_team.name)}&away=${encodeURIComponent(fixture.away_team.name)}&league=${encodeURIComponent(fixture.league.name)}`);
+      const res = await fetch(`${API}/analysis/match/${fixture.id}?home=${encodeURIComponent(fixture.home_team.name)}&away=${encodeURIComponent(fixture.away_team.name)}&league=${encodeURIComponent(fixture.league.name)}&live_home=${fixture.home_goals || 0}&live_away=${fixture.away_goals || 0}&status=${encodeURIComponent(fixture.status)}&start_time=${encodeURIComponent(fixture.time)}`);
       if (!res.ok) throw new Error("Analysis failed");
       const data = await res.json();
       // Merge fixture display info
@@ -83,6 +85,40 @@ function App() {
 
   const selectedFixture = fixtures.find(f => f.id === selectedFixtureId);
 
+  // If in results mode, show the full-screen results tracker
+  if (viewMode === 'results') {
+    return (
+      <div className="h-screen flex flex-col overflow-hidden">
+        <header className="shrink-0 h-14 bg-surface-1 border-b border-border flex items-center px-5 gap-3 z-30">
+          <Trophy className="w-5 h-5 text-gold-500" />
+          <span className="text-base font-bold tracking-widest text-white">
+            FOOTBALL<span className="text-gold-500">PREDICT</span>
+          </span>
+          <div className="flex-1" />
+          <button
+            onClick={() => setViewMode('predictions')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-all text-xs"
+          >
+            <Calendar className="w-3.5 h-3.5" />
+            Predictions
+          </button>
+          <button
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-400 text-xs font-bold"
+          >
+            <Target className="w-3.5 h-3.5" />
+            Results
+          </button>
+        </header>
+        <div className="flex-1 overflow-hidden bg-surface-0">
+          <ResultsTracker
+            onBack={() => setViewMode('predictions')}
+            selectedDate={selectedDate}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen flex flex-col overflow-hidden">
       {/* ── Top Bar ─────────────────────────────────────── */}
@@ -92,10 +128,19 @@ function App() {
           FOOTBALL<span className="text-gold-500">PREDICT</span>
         </span>
         <div className="flex-1" />
-        <div className="flex items-center gap-2 text-xs text-slate-400 bg-white/5 px-3 py-1 rounded-full border border-white/10">
+        <button
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gold-500/15 border border-gold-500/30 text-gold-500 text-xs font-bold"
+        >
           <Calendar className="w-3.5 h-3.5" />
-          <span>AI Pattern Analysis</span>
-        </div>
+          Predictions
+        </button>
+        <button
+          onClick={() => setViewMode('results')}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-slate-400 hover:text-amber-400 hover:border-amber-500/30 transition-all text-xs"
+        >
+          <Target className="w-3.5 h-3.5" />
+          Results
+        </button>
       </header>
 
       {/* ── Date Picker ──────────────────────────────────── */}
