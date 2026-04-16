@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import math
-import random
 import urllib.request
 from datetime import date, datetime, timezone
 from fastapi import FastAPI, HTTPException
@@ -154,6 +153,8 @@ _RESULT_VIG = 0.10
 _AH_REF_ODDS = 1.88
 # Team-supremacy reference odds (which team has more X)
 _SUPREMACY_REF_ODDS = 1.90
+# Fallback odds returned when implied probability is near zero (extreme favourite)
+_FALLBACK_ODDS = 99.0
 
 
 def _compute_team_supremacy(
@@ -225,20 +226,20 @@ def _build_market_candidates(
     def result_odds(prob: float) -> float:
         """Proxy bookmaker odds: 10 % overround applied to model prob."""
         implied = prob * (1.0 - _RESULT_VIG)
-        return round(100.0 / implied, 2) if implied > 0 else 99.0
+        return round(100.0 / implied, 2) if implied > 0 else _FALLBACK_ODDS
 
     # ── 1. 1X2 Result markets ──────────────────────────────────────────
-    add(f"Home Win ({home_name})", "result", pred.home_win, result_odds(pred.home_win))
+    add("Home Win", "result", pred.home_win, result_odds(pred.home_win))
     add("Draw", "result", pred.draw, result_odds(pred.draw))
-    add(f"Away Win ({away_name})", "result", pred.away_win, result_odds(pred.away_win))
+    add("Away Win", "result", pred.away_win, result_odds(pred.away_win))
 
     # ── 2. Double Chance markets ───────────────────────────────────────
     dc_1x = round(pred.home_win + pred.draw, 1)
     dc_x2 = round(pred.away_win + pred.draw, 1)
     dc_12 = round(pred.home_win + pred.away_win, 1)
-    add(f"1X — {home_name} or Draw", "double_chance", dc_1x, result_odds(dc_1x))
-    add(f"X2 — {away_name} or Draw", "double_chance", dc_x2, result_odds(dc_x2))
-    add("12 — Any Team to Win", "double_chance", dc_12, result_odds(dc_12))
+    add("1X (Home or Draw)", "double_chance", dc_1x, result_odds(dc_1x))
+    add("X2 (Away or Draw)", "double_chance", dc_x2, result_odds(dc_x2))
+    add("12 (Any Team to Win)", "double_chance", dc_12, result_odds(dc_12))
 
     # ── 3. Full-time goal markets ──────────────────────────────────────
     for name, prob in [
@@ -843,16 +844,22 @@ def _evaluate_prediction(pick: dict, home_goals: int, away_goals: int,
     # ── Yellow Cards ──
     elif "Yellow Cards" in market or "Cards" in market:
         if total_cards is not None:
+            # Each tuple: (threshold, use_over)
             threshold_map = {
-                "Over 2.5": 2.5, "Under 2.5": -2.5,
-                "Over 3.5": 3.5, "Under 3.5": -3.5,
-                "Over 4.5": 4.5, "Under 4.5": -4.5,
-                "Over 5.5": 5.5, "Under 5.5": -5.5,
-                "Over 6.5": 6.5, "Under 6.5": -6.5,
+                "Over 2.5":  (2.5, True),
+                "Under 2.5": (2.5, False),
+                "Over 3.5":  (3.5, True),
+                "Under 3.5": (3.5, False),
+                "Over 4.5":  (4.5, True),
+                "Under 4.5": (4.5, False),
+                "Over 5.5":  (5.5, True),
+                "Under 5.5": (5.5, False),
+                "Over 6.5":  (6.5, True),
+                "Under 6.5": (6.5, False),
             }
-            for prefix, threshold in threshold_map.items():
+            for prefix, (threshold, use_over) in threshold_map.items():
                 if market.startswith(prefix):
-                    result = total_cards > threshold if threshold > 0 else total_cards < -threshold
+                    result = total_cards > threshold if use_over else total_cards < threshold
                     break
 
     return {

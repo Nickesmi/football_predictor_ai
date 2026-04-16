@@ -128,7 +128,7 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
                   <tbody className="divide-y divide-white/5">
                     {picks.map((pick, idx) => {
                       const catBadge = getCategoryBadge(pick.category);
-                      const edge = pick.edge ?? (pick.probability - pick.implied_prob);
+                      const edge = pick.edge ?? 0;
                       const isPositiveEdge = edge >= 5;
                       return (
                         <tr key={idx} className="hover:bg-white/5 transition-colors">
