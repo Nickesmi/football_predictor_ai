@@ -70,6 +70,8 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
   const poisson = analysis.poisson;
   const corners = analysis.corners;
   const cards = analysis.cards;
+  const cornerAH = analysis.corner_asian_handicap;
+  const goalAH = poisson?.asian_handicap;
 
   return (
     <div className="max-w-3xl mx-auto p-6 animate-fade-in">
@@ -294,6 +296,40 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
               </div>
             </div>
           )}
+
+          {/* Asian Handicap (Goals) */}
+          {goalAH && goalAH.length > 0 && (
+            <div className="bg-surface-2 border border-purple-500/15 rounded-xl p-4 mt-4 mb-4">
+              <p className="text-[10px] text-purple-400 uppercase tracking-wider font-bold mb-4 flex items-center gap-2">
+                <Zap className="w-3.5 h-3.5" /> Asian Handicap (Goals)
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-[11px]">
+                  <thead>
+                    <tr className="border-b border-white/5">
+                      <th className="pb-2 text-slate-500 font-semibold tracking-wider">Line</th>
+                      <th className="pb-2 text-emerald-400 font-semibold tracking-wider text-right">{fixture.home_team.name} Covers</th>
+                      <th className="pb-2 text-red-400 font-semibold tracking-wider text-right">{fixture.away_team.name} Covers</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {goalAH.map((row, i) => (
+                      <tr key={i} className="hover:bg-white/5 transition-colors">
+                        <td className="py-1.5 font-mono text-slate-300">{row.label}</td>
+                        <td className={`py-1.5 text-right font-mono font-bold ${row.home_prob >= 60 ? 'text-emerald-400' : row.home_prob >= 40 ? 'text-yellow-400' : 'text-slate-400'}`}>
+                          {row.home_prob.toFixed(1)}%
+                        </td>
+                        <td className={`py-1.5 text-right font-mono font-bold ${row.away_prob >= 60 ? 'text-red-400' : row.away_prob >= 40 ? 'text-yellow-400' : 'text-slate-400'}`}>
+                          {row.away_prob.toFixed(1)}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[9px] text-slate-600 mt-3">* Integer lines: exact result = push (50% refund included in probabilities)</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -324,15 +360,48 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
               ))}
             </div>
           </div>
+
+          {/* Corner Asian Handicap */}
+          {cornerAH && cornerAH.length > 0 && (
+            <div className="bg-surface-2 border border-blue-400/10 rounded-xl p-4 mt-3">
+              <p className="text-[10px] text-blue-400 uppercase tracking-wider font-bold mb-3 flex items-center gap-2">
+                <Zap className="w-3 h-3" /> Corner Asian Handicap
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-[11px]">
+                  <thead>
+                    <tr className="border-b border-white/5">
+                      <th className="pb-2 text-slate-500 font-semibold">Line</th>
+                      <th className="pb-2 text-blue-400 font-semibold text-right">{fixture.home_team.name}</th>
+                      <th className="pb-2 text-slate-400 font-semibold text-right">{fixture.away_team.name}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {cornerAH.map((row, i) => (
+                      <tr key={i} className="hover:bg-white/5 transition-colors">
+                        <td className="py-1.5 font-mono text-slate-300">{row.label}</td>
+                        <td className={`py-1.5 text-right font-mono font-bold ${row.home_prob >= 60 ? 'text-blue-400' : row.home_prob >= 40 ? 'text-yellow-400' : 'text-slate-400'}`}>
+                          {row.home_prob.toFixed(1)}%
+                        </td>
+                        <td className={`py-1.5 text-right font-mono font-bold ${row.away_prob >= 60 ? 'text-blue-400' : row.away_prob >= 40 ? 'text-yellow-400' : 'text-slate-400'}`}>
+                          {row.away_prob.toFixed(1)}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* ── Cards Model ──────────────────────────────── */}
+      {/* ── Yellow Cards Model ───────────────────────── */}
       {cards && (
         <div className="mb-6">
           <div className="flex items-center gap-2 mb-4">
             <CreditCard className="w-4 h-4 text-amber-400" />
-            <h3 className="text-xs font-bold tracking-[0.15em] text-amber-300 uppercase">Expected Cards</h3>
+            <h3 className="text-xs font-bold tracking-[0.15em] text-amber-300 uppercase">Expected Yellow Cards</h3>
             <span className="text-[9px] text-amber-400/50 font-medium ml-auto">
               {fixture.home_team.name}: {cards.expected_home} | {fixture.away_team.name}: {cards.expected_away}
             </span>
@@ -340,12 +409,12 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
           <div className="bg-surface-2 border border-amber-500/15 rounded-xl p-4">
             <div className="text-center mb-3">
               <span className="text-2xl font-mono font-black text-amber-400">{cards.expected_total.toFixed(1)}</span>
-              <p className="text-[10px] text-slate-500 mt-0.5">Expected Total Cards</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">Expected Total Yellow Cards</p>
             </div>
             <div className="space-y-2">
               {cards.markets.map((m, i) => (
                 <div key={i} className="flex items-center gap-3">
-                  <span className="text-[12px] text-slate-400 font-medium w-36">{m.market}</span>
+                  <span className="text-[12px] text-slate-400 font-medium w-44">{m.market}</span>
                   <div className="flex-1 h-2 bg-black/40 rounded-full overflow-hidden border border-white/5">
                     <div className={`h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full animate-grow`} style={{ width: `${Math.min(m.probability, 100)}%` }} />
                   </div>

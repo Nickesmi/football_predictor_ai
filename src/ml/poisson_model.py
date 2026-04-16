@@ -106,6 +106,9 @@ class PoissonPrediction:
     away_attack_strength: float = 0.0
     away_defense_weakness: float = 0.0
 
+    # Asian Handicap (goals) — computed from full Poisson matrix
+    asian_handicap: list[dict] = field(default_factory=list)
+
     def to_dict(self) -> dict:
         return {
             "home_team": self.home_team,
@@ -156,6 +159,7 @@ class PoissonPrediction:
                 }
             },
             "top_scorelines": self.top_scorelines[:5],
+            "asian_handicap": self.asian_handicap,
         }
 
 
@@ -300,6 +304,38 @@ class PoissonGoalModel:
         fh_away_win_p = sum(fh_matrix[(h, a)] for h in range(self.MAX_GOALS + 1)
                          for a in range(self.MAX_GOALS + 1) if h < a) * 100
 
+        # ── Asian Handicap Calculations ──
+        # Lines applied to the HOME team (-ve = home gives up goals, +ve = home gets extra)
+        # P(home covers line) = P(home_goals - away_goals > -line)
+        # For integer lines, an exact tie = push (half refund → add 0.5 × push_prob)
+        ah_lines = [-2.5, -2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 2.5]
+        asian_handicap = []
+        for line in ah_lines:
+            win_p = 0.0
+            push_p = 0.0
+            for h in range(self.MAX_GOALS + 1):
+                for a in range(self.MAX_GOALS + 1):
+                    diff = h - a
+                    # Home covers if: diff > -line  (i.e. home_goals + line > away_goals)
+                    if diff > -line:
+                        win_p += matrix[(h, a)]
+                    elif line == int(line) and diff == int(-line):
+                        # Exact push: only on integer lines
+                        push_p += matrix[(h, a)]
+            ah_home = round((win_p + 0.5 * push_p) * 100, 1)
+            ah_away = round(100.0 - ah_home, 1)
+            sign = "+" if line > 0 else ""
+            label = f"{sign}{line:.1f}".rstrip("0").rstrip(".")
+            # Keep .5 for half-goal lines
+            if "." not in label:
+                label = label
+            asian_handicap.append({
+                "line": line,
+                "label": f"Home {sign}{line:g}",
+                "home_prob": ah_home,
+                "away_prob": ah_away,
+            })
+
         return PoissonPrediction(
             home_team=home_team,
             away_team=away_team,
@@ -332,4 +368,5 @@ class PoissonGoalModel:
             home_defense_weakness=home_str.defense_weakness,
             away_attack_strength=away_str.attack_strength,
             away_defense_weakness=away_str.defense_weakness,
+            asian_handicap=asian_handicap,
         )

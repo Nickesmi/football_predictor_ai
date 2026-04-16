@@ -76,12 +76,58 @@ LEAGUE_NAME_MAP = {
 }
 
 
+def _poisson_pmf(k: int, lam: float) -> float:
+    """Poisson PMF: P(X = k) for rate lam."""
+    if lam <= 0:
+        return 1.0 if k == 0 else 0.0
+    return math.exp(-lam) * (lam ** k) / math.factorial(k)
+
+
 def _poisson_over(lam: float, threshold: int) -> float:
     """P(X > threshold) for Poisson distributed X with rate lam."""
     if lam <= 0:
         return 0.0
     cum = sum(math.exp(-lam) * (lam ** k) / math.factorial(k) for k in range(threshold + 1))
     return max(0.0, min(100.0, (1 - cum) * 100))
+
+
+def _compute_corner_asian_handicap(
+    expected_home_corners: float,
+    expected_away_corners: float,
+    max_corners: int = 20,
+) -> list[dict]:
+    """
+    Compute Asian Handicap probabilities for corners.
+
+    Lines are applied to the HOME team.  A negative line means home gives
+    away corners; a positive line means home receives extra corners.
+    """
+    # Build joint corner probability matrix
+    corner_matrix: dict[tuple[int, int], float] = {}
+    for h in range(max_corners + 1):
+        for a in range(max_corners + 1):
+            corner_matrix[(h, a)] = (
+                _poisson_pmf(h, expected_home_corners) *
+                _poisson_pmf(a, expected_away_corners)
+            )
+
+    # Half-point lines only → no push possible (cleaner display)
+    ah_lines = [-4.5, -3.5, -2.5, -1.5, -0.5, 0.5, 1.5, 2.5, 3.5, 4.5]
+    results = []
+    for line in ah_lines:
+        win_p = sum(
+            p for (h, a), p in corner_matrix.items()
+            if (h - a) > -line
+        )
+        ah_home = round(win_p * 100, 1)
+        sign = "+" if line > 0 else ""
+        results.append({
+            "label": f"Home {sign}{line:g}",
+            "line": line,
+            "home_prob": ah_home,
+            "away_prob": round(100.0 - ah_home, 1),
+        })
+    return results
 
 
 def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "Premier League") -> dict:
@@ -138,7 +184,7 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
         ],
     }
     
-    # Step 4: Cards model (Poisson on expected cards)
+    # Step 4: Yellow Cards model (Poisson on expected yellow cards per team)
     expected_home_cards = home_stats.cards
     expected_away_cards = away_stats.cards
     total_expected_cards = expected_home_cards + expected_away_cards
@@ -148,16 +194,16 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
         "expected_away": round(expected_away_cards, 1),
         "expected_total": round(total_expected_cards, 1),
         "markets": [
-            {"market": "Over 2.5 Cards", "probability": round(_poisson_over(total_expected_cards, 2), 1)},
-            {"market": "Under 2.5 Cards", "probability": round(100 - _poisson_over(total_expected_cards, 2), 1)},
-            {"market": "Over 3.5 Cards", "probability": round(_poisson_over(total_expected_cards, 3), 1)},
-            {"market": "Under 3.5 Cards", "probability": round(100 - _poisson_over(total_expected_cards, 3), 1)},
-            {"market": "Over 4.5 Cards", "probability": round(_poisson_over(total_expected_cards, 4), 1)},
-            {"market": "Under 4.5 Cards", "probability": round(100 - _poisson_over(total_expected_cards, 4), 1)},
-            {"market": "Over 5.5 Cards", "probability": round(_poisson_over(total_expected_cards, 5), 1)},
-            {"market": "Under 5.5 Cards", "probability": round(100 - _poisson_over(total_expected_cards, 5), 1)},
-            {"market": "Over 6.5 Cards", "probability": round(_poisson_over(total_expected_cards, 6), 1)},
-            {"market": "Under 6.5 Cards", "probability": round(100 - _poisson_over(total_expected_cards, 6), 1)},
+            {"market": "Over 2.5 Yellow Cards", "probability": round(_poisson_over(total_expected_cards, 2), 1)},
+            {"market": "Under 2.5 Yellow Cards", "probability": round(100 - _poisson_over(total_expected_cards, 2), 1)},
+            {"market": "Over 3.5 Yellow Cards", "probability": round(_poisson_over(total_expected_cards, 3), 1)},
+            {"market": "Under 3.5 Yellow Cards", "probability": round(100 - _poisson_over(total_expected_cards, 3), 1)},
+            {"market": "Over 4.5 Yellow Cards", "probability": round(_poisson_over(total_expected_cards, 4), 1)},
+            {"market": "Under 4.5 Yellow Cards", "probability": round(100 - _poisson_over(total_expected_cards, 4), 1)},
+            {"market": "Over 5.5 Yellow Cards", "probability": round(_poisson_over(total_expected_cards, 5), 1)},
+            {"market": "Under 5.5 Yellow Cards", "probability": round(100 - _poisson_over(total_expected_cards, 5), 1)},
+            {"market": "Over 6.5 Yellow Cards", "probability": round(_poisson_over(total_expected_cards, 6), 1)},
+            {"market": "Under 6.5 Yellow Cards", "probability": round(100 - _poisson_over(total_expected_cards, 6), 1)},
         ],
     }
     
@@ -196,8 +242,8 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
         "Over 1.5 Goals": (pred.over_1_5, 1.35),
         "Over 2.5 Goals": (pred.over_2_5, 1.95),
         "BTTS - Yes":     (pred.btts_yes, 1.80),
-        "Over 9.5 Corners": (corners_data["markets"][2]["probability"], 1.85),
-        "Over 3.5 Cards": (cards_data["markets"][1]["probability"], 1.70),
+        "Over 9.5 Corners": (corners_data["markets"][4]["probability"], 1.85),
+        "Over 3.5 Yellow Cards": (cards_data["markets"][2]["probability"], 1.70),
     }
     for pattern, (prob, odds) in market_odds_map.items():
         implied = (1 / odds) * 100
@@ -221,10 +267,15 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
     
     # Step 7: Strongest edge ranking
     value_selections.sort(key=lambda v: v["value_edge"], reverse=True)
+
+    # Step 8: Corner Asian Handicap
+    corner_asian_handicap = _compute_corner_asian_handicap(
+        expected_home_corners, expected_away_corners
+    )
     
-    # Step 8: Top Confident Picks (>70%)
+    # Step 9: Top Confident Picks (>80%)
     all_markets = []
-    # Add Goals Markets
+    # Full-time goals markets
     all_markets.extend([
         {"market": "Over 0.5 Goals", "probability": round(pred.over_0_5, 1)},
         {"market": "Under 0.5 Goals", "probability": round(pred.under_0_5, 1)},
@@ -237,7 +288,14 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
         {"market": "Over 4.5 Goals", "probability": round(pred.over_4_5, 1)},
         {"market": "Under 4.5 Goals", "probability": round(100 - pred.over_4_5, 1)},
         {"market": "BTTS - Yes", "probability": round(pred.btts_yes, 1)},
-        {"market": "BTTS - No", "probability": round(pred.btts_no, 1)}
+        {"market": "BTTS - No", "probability": round(pred.btts_no, 1)},
+    ])
+    # First-half goals markets
+    all_markets.extend([
+        {"market": "FH Over 0.5 Goals", "probability": round(pred.fh_over_0_5, 1)},
+        {"market": "FH Under 0.5 Goals", "probability": round(100 - pred.fh_over_0_5, 1)},
+        {"market": "FH Over 1.5 Goals", "probability": round(pred.fh_over_1_5, 1)},
+        {"market": "FH Under 1.5 Goals", "probability": round(100 - pred.fh_over_1_5, 1)},
     ])
     
     max_result = max(pred.home_win, pred.draw, pred.away_win)
@@ -249,13 +307,13 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
         all_markets.append({"market": "12 (Any Team to Win)", "probability": round(pred.home_win + pred.away_win, 1)})
     # Add Corners Markets
     all_markets.extend(corners_data["markets"])
-    # Add Cards Markets
+    # Add Yellow Cards Markets
     all_markets.extend(cards_data["markets"])
     
     import random
     
-    # We now return ALL markets with confidence strictly higher than 70%
-    top_6_confident = [m for m in all_markets if m["probability"] > 70]
+    # Return all markets with confidence strictly higher than 80%
+    top_6_confident = [m for m in all_markets if m["probability"] > 80]
     
     # Sort them descending so the absolutely most confident are at the top
     top_6_confident.sort(key=lambda x: x["probability"], reverse=True)
@@ -267,6 +325,7 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
         "disclaimer": f"Hybrid Engine v5 — Poisson (λ={pred.lambda_home:.2f}+{pred.lambda_away:.2f}) + XGBoost | {league_key}",
         "poisson": pred.to_dict(),
         "corners": corners_data,
+        "corner_asian_handicap": corner_asian_handicap,
         "cards": cards_data,
         "xgboost_predictions": xgb_pred.to_dict().get("predictions", []),
         "value_selections": value_selections,
@@ -584,29 +643,20 @@ def _evaluate_prediction(pick: dict, home_goals: int, away_goals: int,
             elif market == "Under 11.5 Corners":
                 result = total_corners < 11.5
 
-    # ── Cards ──
-    elif "Cards" in market:
+    # ── Yellow Cards ──
+    elif "Yellow Cards" in market or "Cards" in market:
         if total_cards is not None:
-            if market == "Over 2.5 Cards":
-                result = total_cards > 2.5
-            elif market == "Under 2.5 Cards":
-                result = total_cards < 2.5
-            elif market == "Over 3.5 Cards":
-                result = total_cards > 3.5
-            elif market == "Under 3.5 Cards":
-                result = total_cards < 3.5
-            elif market == "Over 4.5 Cards":
-                result = total_cards > 4.5
-            elif market == "Under 4.5 Cards":
-                result = total_cards < 4.5
-            elif market == "Over 5.5 Cards":
-                result = total_cards > 5.5
-            elif market == "Under 5.5 Cards":
-                result = total_cards < 5.5
-            elif market == "Over 6.5 Cards":
-                result = total_cards > 6.5
-            elif market == "Under 6.5 Cards":
-                result = total_cards < 6.5
+            threshold_map = {
+                "Over 2.5": 2.5, "Under 2.5": -2.5,
+                "Over 3.5": 3.5, "Under 3.5": -3.5,
+                "Over 4.5": 4.5, "Under 4.5": -4.5,
+                "Over 5.5": 5.5, "Under 5.5": -5.5,
+                "Over 6.5": 6.5, "Under 6.5": -6.5,
+            }
+            for prefix, threshold in threshold_map.items():
+                if market.startswith(prefix):
+                    result = total_cards > threshold if threshold > 0 else total_cards < -threshold
+                    break
 
     return {
         **pick,
