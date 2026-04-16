@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+import random
 import urllib.request
 from datetime import date, datetime, timezone
 from fastapi import FastAPI, HTTPException
@@ -237,13 +238,16 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
     xgb_pred = xgb_predictor.predict(home_profile, away_profile)
     
     # Step 6: Value detections
+    def _market_prob(markets: list[dict], name: str, default: float = 0.0) -> float:
+        return next((m["probability"] for m in markets if m.get("market") == name), default)
+
     value_selections = []
     market_odds_map = {
         "Over 1.5 Goals": (pred.over_1_5, 1.35),
         "Over 2.5 Goals": (pred.over_2_5, 1.95),
         "BTTS - Yes":     (pred.btts_yes, 1.80),
-        "Over 9.5 Corners": (corners_data["markets"][4]["probability"], 1.85),
-        "Over 3.5 Yellow Cards": (cards_data["markets"][2]["probability"], 1.70),
+        "Over 9.5 Corners": (_market_prob(corners_data["markets"], "Over 9.5 Corners"), 1.85),
+        "Over 3.5 Yellow Cards": (_market_prob(cards_data["markets"], "Over 3.5 Yellow Cards"), 1.70),
     }
     for pattern, (prob, odds) in market_odds_map.items():
         implied = (1 / odds) * 100
@@ -309,8 +313,6 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
     all_markets.extend(corners_data["markets"])
     # Add Yellow Cards Markets
     all_markets.extend(cards_data["markets"])
-    
-    import random
     
     # Return all markets with confidence strictly higher than 80%
     top_6_confident = [m for m in all_markets if m["probability"] > 80]

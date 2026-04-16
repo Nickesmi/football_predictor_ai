@@ -325,10 +325,6 @@ class PoissonGoalModel:
             ah_home = round((win_p + 0.5 * push_p) * 100, 1)
             ah_away = round(100.0 - ah_home, 1)
             sign = "+" if line > 0 else ""
-            label = f"{sign}{line:.1f}".rstrip("0").rstrip(".")
-            # Keep .5 for half-goal lines
-            if "." not in label:
-                label = label
             asian_handicap.append({
                 "line": line,
                 "label": f"Home {sign}{line:g}",
