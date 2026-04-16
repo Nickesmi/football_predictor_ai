@@ -92,6 +92,250 @@ def _poisson_over(lam: float, threshold: int) -> float:
     return max(0.0, min(100.0, (1 - cum) * 100))
 
 
+# ── Reference bookmaker odds for standardised market lines ────────────
+# Represent typical Pinnacle-style sharp-book prices (≈5 % total overround).
+# Used to compute edge = model_probability − implied_probability.
+_MARKET_REF_ODDS: dict[str, float] = {
+    # Full-time goal totals
+    "Over 0.5 Goals":         1.09,
+    "Under 0.5 Goals":        8.00,
+    "Over 1.5 Goals":         1.37,
+    "Under 1.5 Goals":        3.10,
+    "Over 2.5 Goals":         1.90,
+    "Under 2.5 Goals":        1.95,
+    "Over 3.5 Goals":         2.90,
+    "Under 3.5 Goals":        1.38,
+    "Over 4.5 Goals":         4.50,
+    "Under 4.5 Goals":        1.18,
+    "BTTS - Yes":             1.80,
+    "BTTS - No":              1.95,
+    # First-half goal totals
+    "FH Over 0.5 Goals":      1.42,
+    "FH Under 0.5 Goals":     2.70,
+    "FH Over 1.5 Goals":      2.80,
+    "FH Under 1.5 Goals":     1.42,
+    # Corner totals
+    "Over 7.5 Corners":       1.65,
+    "Under 7.5 Corners":      2.20,
+    "Over 8.5 Corners":       1.90,
+    "Under 8.5 Corners":      1.90,
+    "Over 9.5 Corners":       2.20,
+    "Under 9.5 Corners":      1.65,
+    "Over 10.5 Corners":      2.55,
+    "Under 10.5 Corners":     1.50,
+    "Over 11.5 Corners":      3.10,
+    "Under 11.5 Corners":     1.38,
+    # Yellow card totals
+    "Over 2.5 Yellow Cards":  1.72,
+    "Under 2.5 Yellow Cards": 2.10,
+    "Over 3.5 Yellow Cards":  2.10,
+    "Under 3.5 Yellow Cards": 1.72,
+    "Over 4.5 Yellow Cards":  2.80,
+    "Under 4.5 Yellow Cards": 1.40,
+    "Over 5.5 Yellow Cards":  4.00,
+    "Under 5.5 Yellow Cards": 1.22,
+}
+
+# Stability weight per category (how reliably the model predicts each type)
+_CATEGORY_STABILITY: dict[str, float] = {
+    "result":        0.90,
+    "double_chance": 0.92,
+    "goal":          0.85,
+    "corners":       0.72,
+    "cards":         0.65,
+    "handicap":      0.82,
+    "advanced":      0.75,
+}
+
+# Bookmaker overround applied to result / double-chance markets
+# (no live odds → proxy: 10 % overround on each side of these markets)
+_RESULT_VIG = 0.10
+# Standard Asian-Handicap reference odds (Pinnacle pricing)
+_AH_REF_ODDS = 1.88
+# Team-supremacy reference odds (which team has more X)
+_SUPREMACY_REF_ODDS = 1.90
+
+
+def _compute_team_supremacy(
+    lam_home: float, lam_away: float, max_k: int = 20
+) -> tuple[float, float, float]:
+    """
+    Return (P(home > away), P(home == away), P(away > home)) in percent,
+    modelling both quantities as independent Poisson variables.
+    """
+    home_gt = tie = away_gt = 0.0
+    for h in range(max_k + 1):
+        ph = _poisson_pmf(h, lam_home)
+        for a in range(max_k + 1):
+            joint = ph * _poisson_pmf(a, lam_away)
+            if h > a:
+                home_gt += joint
+            elif h == a:
+                tie += joint
+            else:
+                away_gt += joint
+    return round(home_gt * 100, 1), round(tie * 100, 1), round(away_gt * 100, 1)
+
+
+def _build_market_candidates(
+    pred,
+    corners_data: dict,
+    cards_data: dict,
+    home_name: str,
+    away_name: str,
+    expected_home_corners: float,
+    expected_away_corners: float,
+    expected_home_cards: float,
+    expected_away_cards: float,
+) -> list[dict]:
+    """
+    Assemble the full universe of market candidates, each with:
+    model probability, reference bookmaker odds, implied probability, edge,
+    stability score, and category label.
+    """
+    candidates: list[dict] = []
+
+    def _stability(category: str, prob: float) -> float:
+        base = _CATEGORY_STABILITY.get(category, 0.70)
+        return round(base * min(prob / 70.0, 1.0) * 100, 1)
+
+    def _confidence(prob: float, edge: float) -> str:
+        if prob >= 78 and edge >= 10:
+            return "Very High"
+        if prob >= 65 and edge >= 5:
+            return "High"
+        return "Medium"
+
+    def add(market: str, category: str, prob: float, ref_odds: float) -> None:
+        if ref_odds <= 1.0 or prob <= 0:
+            return
+        implied = round(100.0 / ref_odds, 1)
+        edge = round(prob - implied, 1)
+        candidates.append({
+            "market": market,
+            "category": category,
+            "probability": round(prob, 1),
+            "odds": round(ref_odds, 2),
+            "implied_prob": implied,
+            "edge": edge,
+            "stability": _stability(category, prob),
+            "confidence": _confidence(prob, edge),
+        })
+
+    def result_odds(prob: float) -> float:
+        """Proxy bookmaker odds: 10 % overround applied to model prob."""
+        implied = prob * (1.0 - _RESULT_VIG)
+        return round(100.0 / implied, 2) if implied > 0 else 99.0
+
+    # ── 1. 1X2 Result markets ──────────────────────────────────────────
+    add(f"Home Win ({home_name})", "result", pred.home_win, result_odds(pred.home_win))
+    add("Draw", "result", pred.draw, result_odds(pred.draw))
+    add(f"Away Win ({away_name})", "result", pred.away_win, result_odds(pred.away_win))
+
+    # ── 2. Double Chance markets ───────────────────────────────────────
+    dc_1x = round(pred.home_win + pred.draw, 1)
+    dc_x2 = round(pred.away_win + pred.draw, 1)
+    dc_12 = round(pred.home_win + pred.away_win, 1)
+    add(f"1X — {home_name} or Draw", "double_chance", dc_1x, result_odds(dc_1x))
+    add(f"X2 — {away_name} or Draw", "double_chance", dc_x2, result_odds(dc_x2))
+    add("12 — Any Team to Win", "double_chance", dc_12, result_odds(dc_12))
+
+    # ── 3. Full-time goal markets ──────────────────────────────────────
+    for name, prob in [
+        ("Over 0.5 Goals",   pred.over_0_5),
+        ("Under 0.5 Goals",  pred.under_0_5),
+        ("Over 1.5 Goals",   pred.over_1_5),
+        ("Under 1.5 Goals",  pred.under_1_5),
+        ("Over 2.5 Goals",   pred.over_2_5),
+        ("Under 2.5 Goals",  pred.under_2_5),
+        ("Over 3.5 Goals",   pred.over_3_5),
+        ("Under 3.5 Goals",  pred.under_3_5),
+        ("Over 4.5 Goals",   pred.over_4_5),
+        ("Under 4.5 Goals",  100 - pred.over_4_5),
+        ("BTTS - Yes",       pred.btts_yes),
+        ("BTTS - No",        pred.btts_no),
+    ]:
+        if name in _MARKET_REF_ODDS:
+            add(name, "goal", prob, _MARKET_REF_ODDS[name])
+
+    # ── 4. First-half goal markets ─────────────────────────────────────
+    fh_over_0_5  = pred.fh_over_0_5
+    fh_over_1_5  = pred.fh_over_1_5
+    for name, prob in [
+        ("FH Over 0.5 Goals",  fh_over_0_5),
+        ("FH Under 0.5 Goals", round(100 - fh_over_0_5, 1)),
+        ("FH Over 1.5 Goals",  fh_over_1_5),
+        ("FH Under 1.5 Goals", round(100 - fh_over_1_5, 1)),
+    ]:
+        if name in _MARKET_REF_ODDS:
+            add(name, "goal", prob, _MARKET_REF_ODDS[name])
+
+    # ── 5. Corners O/U totals ─────────────────────────────────────────
+    for m in corners_data["markets"]:
+        name = m["market"]
+        if name in _MARKET_REF_ODDS:
+            add(name, "corners", m["probability"], _MARKET_REF_ODDS[name])
+
+    # ── 6. Yellow cards O/U totals ────────────────────────────────────
+    for m in cards_data["markets"]:
+        name = m["market"]
+        if name in _MARKET_REF_ODDS:
+            add(name, "cards", m["probability"], _MARKET_REF_ODDS[name])
+
+    # ── 7. Asian Handicap — goals (from Poisson matrix) ───────────────
+    for ah in pred.asian_handicap:
+        add(ah["label"],                               "handicap", ah["home_prob"], _AH_REF_ODDS)
+        add(ah["label"].replace("Home", "Away"),       "handicap", ah["away_prob"], _AH_REF_ODDS)
+
+    # ── 8. Team supremacy — corners ───────────────────────────────────
+    home_c_gt, _, away_c_gt = _compute_team_supremacy(
+        expected_home_corners, expected_away_corners
+    )
+    add(f"{home_name} More Corners", "advanced", home_c_gt, _SUPREMACY_REF_ODDS)
+    add(f"{away_name} More Corners", "advanced", away_c_gt, _SUPREMACY_REF_ODDS)
+
+    # ── 9. Team supremacy — yellow cards ──────────────────────────────
+    home_k_gt, _, away_k_gt = _compute_team_supremacy(
+        expected_home_cards, expected_away_cards
+    )
+    add(f"{home_name} More Yellow Cards", "advanced", home_k_gt, _SUPREMACY_REF_ODDS)
+    add(f"{away_name} More Yellow Cards", "advanced", away_k_gt, _SUPREMACY_REF_ODDS)
+
+    return candidates
+
+
+def _select_diverse_top_picks(
+    candidates: list[dict],
+    max_picks: int = 6,
+    max_per_cat: int = 2,
+    min_prob: float = 60.0,
+    min_edge: float = 5.0,
+) -> list[dict]:
+    """
+    Select the best picks from the candidate universe using:
+    1. Filter  : probability ≥ min_prob AND edge ≥ min_edge (percentage points)
+    2. Rank    : edge desc → probability desc → stability desc
+    3. Diversity: at most max_per_cat picks from the same category
+    """
+    eligible = [
+        c for c in candidates
+        if c["probability"] >= min_prob and c["edge"] >= min_edge
+    ]
+    eligible.sort(key=lambda x: (-x["edge"], -x["probability"], -x["stability"]))
+
+    selected: list[dict] = []
+    cat_count: dict[str, int] = {}
+    for pick in eligible:
+        if len(selected) >= max_picks:
+            break
+        cat = pick["category"]
+        if cat_count.get(cat, 0) < max_per_cat:
+            cat_count[cat] = cat_count.get(cat, 0) + 1
+            selected.append({**pick, "rank": len(selected) + 1})
+
+    return selected
+
+
 def _compute_corner_asian_handicap(
     expected_home_corners: float,
     expected_away_corners: float,
@@ -236,102 +480,53 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
         goal_diff=round((away_stats.scored - away_stats.conceded) * 18, 1),
     )
     xgb_pred = xgb_predictor.predict(home_profile, away_profile)
-    
-    # Step 6: Value detections
-    def _market_prob(markets: list[dict], name: str, default: float = 0.0) -> float:
-        return next((m["probability"] for m in markets if m.get("market") == name), default)
 
-    value_selections = []
-    market_odds_map = {
-        "Over 1.5 Goals": (pred.over_1_5, 1.35),
-        "Over 2.5 Goals": (pred.over_2_5, 1.95),
-        "BTTS - Yes":     (pred.btts_yes, 1.80),
-        "Over 9.5 Corners": (_market_prob(corners_data["markets"], "Over 9.5 Corners"), 1.85),
-        "Over 3.5 Yellow Cards": (_market_prob(cards_data["markets"], "Over 3.5 Yellow Cards"), 1.70),
-    }
-    for pattern, (prob, odds) in market_odds_map.items():
-        implied = (1 / odds) * 100
-        edge = round(prob - implied, 1)
-        if edge > 10:
-            verdict = "Best Choice"
-        elif edge > 5:
-            verdict = "Value"
-        elif edge > -2:
-            verdict = "Fair"
-        else:
-            continue
-        pillar = "Corners" if "Corner" in pattern else "Cards" if "Card" in pattern else "Goals"
-        value_selections.append({
-            "pattern": pattern, "pillar": pillar,
-            "ic": round(prob, 1), "implied_probability": round(implied, 1),
-            "value_edge": edge, "verdict": verdict,
-            "stability": round(prob * 0.85, 1),
-            "confidence": "Very High" if prob >= 75 else "High" if prob >= 60 else "Medium",
-        })
-    
-    # Step 7: Strongest edge ranking
-    value_selections.sort(key=lambda v: v["value_edge"], reverse=True)
+    # ── Step 6: Multi-market professional engine ───────────────────────
+    # Build full universe of candidates, then select the diverse top picks.
+    market_candidates = _build_market_candidates(
+        pred, corners_data, cards_data,
+        home_name, away_name,
+        expected_home_corners, expected_away_corners,
+        expected_home_cards, expected_away_cards,
+    )
+    top_picks = _select_diverse_top_picks(market_candidates)
 
-    # Step 8: Corner Asian Handicap
+    # Corner Asian Handicap for the detailed display panel
     corner_asian_handicap = _compute_corner_asian_handicap(
         expected_home_corners, expected_away_corners
     )
-    
-    # Step 9: Top Confident Picks (>80%)
-    all_markets = []
-    # Full-time goals markets
-    all_markets.extend([
-        {"market": "Over 0.5 Goals", "probability": round(pred.over_0_5, 1)},
-        {"market": "Under 0.5 Goals", "probability": round(pred.under_0_5, 1)},
-        {"market": "Over 1.5 Goals", "probability": round(pred.over_1_5, 1)},
-        {"market": "Under 1.5 Goals", "probability": round(pred.under_1_5, 1)},
-        {"market": "Over 2.5 Goals", "probability": round(pred.over_2_5, 1)},
-        {"market": "Under 2.5 Goals", "probability": round(pred.under_2_5, 1)},
-        {"market": "Over 3.5 Goals", "probability": round(pred.over_3_5, 1)},
-        {"market": "Under 3.5 Goals", "probability": round(pred.under_3_5, 1)},
-        {"market": "Over 4.5 Goals", "probability": round(pred.over_4_5, 1)},
-        {"market": "Under 4.5 Goals", "probability": round(100 - pred.over_4_5, 1)},
-        {"market": "BTTS - Yes", "probability": round(pred.btts_yes, 1)},
-        {"market": "BTTS - No", "probability": round(pred.btts_no, 1)},
-    ])
-    # First-half goals markets
-    all_markets.extend([
-        {"market": "FH Over 0.5 Goals", "probability": round(pred.fh_over_0_5, 1)},
-        {"market": "FH Under 0.5 Goals", "probability": round(100 - pred.fh_over_0_5, 1)},
-        {"market": "FH Over 1.5 Goals", "probability": round(pred.fh_over_1_5, 1)},
-        {"market": "FH Under 1.5 Goals", "probability": round(100 - pred.fh_over_1_5, 1)},
-    ])
-    
-    max_result = max(pred.home_win, pred.draw, pred.away_win)
-    if max_result != pred.away_win:
-        all_markets.append({"market": f"1X ({home_name} or Draw)", "probability": round(pred.home_win + pred.draw, 1)})
-    if max_result != pred.home_win:
-        all_markets.append({"market": f"X2 ({away_name} or Draw)", "probability": round(pred.away_win + pred.draw, 1)})
-    if max_result != pred.draw:
-        all_markets.append({"market": "12 (Any Team to Win)", "probability": round(pred.home_win + pred.away_win, 1)})
-    # Add Corners Markets
-    all_markets.extend(corners_data["markets"])
-    # Add Yellow Cards Markets
-    all_markets.extend(cards_data["markets"])
-    
-    # Return all markets with confidence strictly higher than 80%
-    top_6_confident = [m for m in all_markets if m["probability"] > 80]
-    
-    # Sort them descending so the absolutely most confident are at the top
-    top_6_confident.sort(key=lambda x: x["probability"], reverse=True)
-    
-    # Shuffle the list so they don't appear in strictly descending order
-    random.shuffle(top_6_confident)
-    
+
+    # ── Step 7: Derive value_selections from top_picks for legacy display ──
+    value_selections = [
+        {
+            "pattern": p["market"],
+            "pillar": p["category"].replace("_", " ").title(),
+            "ic": p["probability"],
+            "implied_probability": p["implied_prob"],
+            "value_edge": p["edge"],
+            "verdict": (
+                "Best Choice" if p["edge"] >= 10
+                else "Value" if p["edge"] >= 5
+                else "Fair"
+            ),
+            "stability": p["stability"],
+            "confidence": p["confidence"],
+        }
+        for p in top_picks
+    ]
+
     return {
-        "disclaimer": f"Hybrid Engine v5 — Poisson (λ={pred.lambda_home:.2f}+{pred.lambda_away:.2f}) + XGBoost | {league_key}",
+        "disclaimer": f"Hybrid Engine v6 — Poisson (λ={pred.lambda_home:.2f}+{pred.lambda_away:.2f}) + Multi-Market | {league_key}",
         "poisson": pred.to_dict(),
         "corners": corners_data,
         "corner_asian_handicap": corner_asian_handicap,
         "cards": cards_data,
         "xgboost_predictions": xgb_pred.to_dict().get("predictions", []),
+        # New unified top-picks (edge-ranked, diversity-constrained)
+        "top_picks": top_picks,
+        # Legacy key — results verifier reads this key; keep it in sync
+        "top_6_confident": top_picks,
         "value_selections": value_selections,
-        "top_6_confident": top_6_confident,
         "averages": {
             "home": {
                 "avg_goals_scored": home_stats.scored,

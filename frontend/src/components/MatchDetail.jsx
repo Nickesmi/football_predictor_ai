@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader2, AlertCircle, BarChart3, TrendingUp, Info, CheckCircle2, ShieldAlert, Target, Zap, Trophy, Shield, Crosshair, Flame, Brain, Cpu, Activity, Sigma, CornerUpRight, CreditCard, Dices } from 'lucide-react';
+import { Loader2, AlertCircle, BarChart3, TrendingUp, Info, CheckCircle2, ShieldAlert, Zap, Shield, Crosshair, Flame, Brain, Cpu, Activity, Sigma, CornerUpRight, CreditCard, Dices } from 'lucide-react';
 
 /* ── Helpers ──────────────────────────────────────── */
 
@@ -28,17 +28,17 @@ const getStrengthColor = (v) => {
   return "text-red-400";
 };
 
-const getVerdictStyle = (verdict) => {
-  if (verdict === "Best Choice") return { cls: "text-amber-300 bg-amber-400/15 border-amber-400/30", icon: <Trophy className="w-3.5 h-3.5" /> };
-  if (verdict === "Value") return { cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20", icon: <Flame className="w-3.5 h-3.5" /> };
-  if (verdict === "Fair") return { cls: "text-slate-400 bg-slate-400/10 border-slate-400/20", icon: <BarChart3 className="w-3.5 h-3.5" /> };
-  return { cls: "text-red-400 bg-red-400/10 border-red-400/20", icon: <ShieldAlert className="w-3.5 h-3.5" /> };
-};
-
-const getPillarIcon = (pillar) => {
-  if (pillar === "Corners") return <CornerUpRight className="w-3 h-3" />;
-  if (pillar === "Cards") return <CreditCard className="w-3 h-3" />;
-  return <Target className="w-3 h-3" />;
+const getCategoryBadge = (category) => {
+  const map = {
+    result:        { label: "Result",        cls: "text-blue-400 bg-blue-400/10 border-blue-400/20" },
+    double_chance: { label: "Double Chance", cls: "text-indigo-400 bg-indigo-400/10 border-indigo-400/20" },
+    goal:          { label: "Goals",         cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20" },
+    corners:       { label: "Corners",       cls: "text-cyan-400 bg-cyan-400/10 border-cyan-400/20" },
+    cards:         { label: "Cards",         cls: "text-amber-400 bg-amber-400/10 border-amber-400/20" },
+    handicap:      { label: "Handicap",      cls: "text-purple-400 bg-purple-400/10 border-purple-400/20" },
+    advanced:      { label: "Advanced",      cls: "text-rose-400 bg-rose-400/10 border-rose-400/20" },
+  };
+  return map[category] || { label: category, cls: "text-slate-400 bg-slate-400/10 border-slate-400/20" };
 };
 
 
@@ -96,54 +96,92 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
         </div>
       </div>
 
-      {/* ── Top Confident Picks ──────────────────────── */}
-      {analysis.top_6_confident && analysis.top_6_confident.length > 0 && (
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Flame className="w-5 h-5 text-amber-500" />
-              <h3 className="text-sm font-bold tracking-[0.15em] text-amber-400 uppercase">Top {analysis.top_6_confident.length} Confident Picks</h3>
+      {/* ── Top Picks (Multi-Market Engine) ─────────────── */}
+      {(analysis.top_picks || analysis.top_6_confident) && (analysis.top_picks || analysis.top_6_confident).length > 0 && (() => {
+        const picks = analysis.top_picks || analysis.top_6_confident;
+        return (
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Flame className="w-5 h-5 text-amber-500" />
+                <h3 className="text-sm font-bold tracking-[0.15em] text-amber-400 uppercase">
+                  Top {picks.length} Picks
+                </h3>
+              </div>
+              <span className="text-[9px] text-amber-400/40 uppercase tracking-widest">Edge · Probability · Stability</span>
             </div>
-          </div>
 
-          <div className="bg-surface-2 border border-amber-500/20 rounded-xl overflow-hidden shadow-lg shadow-amber-500/5">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-surface-1 border-b border-white/5">
-                    <th className="py-3 px-4 text-xs font-semibold text-slate-400 tracking-wider">#</th>
-                    <th className="py-3 px-4 text-xs font-semibold text-slate-400 tracking-wider">MARKET</th>
-                    <th className="py-3 px-4 text-xs font-semibold text-slate-400 tracking-wider text-right">CONFIDENCE (%)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                  {analysis.top_6_confident.map((pick, idx) => (
-                    <tr key={idx} className="hover:bg-white/5 transition-colors group">
-                      <td className="py-3 px-4 text-xs text-slate-500 font-mono">
-                        {String(idx + 1).padStart(2, '0')}
-                      </td>
-                      <td className="py-3 px-4 text-sm font-medium text-white flex items-center gap-2">
-                        {pick.market}
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-3">
-                          <div className="w-24 h-2 bg-black/40 rounded-full overflow-hidden border border-white/5">
-                            <div
-                              className={`h-full bg-gradient-to-r ${getBarColor(pick.probability)} rounded-full`}
-                              style={{ width: `${Math.min(pick.probability, 100)}%` }}
-                            />
-                          </div>
-                          <span className="text-sm font-mono font-bold text-emerald-400 w-12">{pick.probability.toFixed(1)}%</span>
-                        </div>
-                      </td>
+            <div className="bg-surface-2 border border-amber-500/20 rounded-xl overflow-hidden shadow-lg shadow-amber-500/5">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-surface-1 border-b border-white/5">
+                      <th className="py-3 px-3 text-[10px] font-semibold text-slate-500 tracking-wider">#</th>
+                      <th className="py-3 px-3 text-[10px] font-semibold text-slate-500 tracking-wider">CATEGORY</th>
+                      <th className="py-3 px-3 text-[10px] font-semibold text-slate-500 tracking-wider">MARKET</th>
+                      <th className="py-3 px-3 text-[10px] font-semibold text-slate-500 tracking-wider text-right">PROB</th>
+                      <th className="py-3 px-3 text-[10px] font-semibold text-slate-500 tracking-wider text-right">ODDS</th>
+                      <th className="py-3 px-3 text-[10px] font-semibold text-slate-500 tracking-wider text-right">EDGE</th>
+                      <th className="py-3 px-3 text-[10px] font-semibold text-slate-500 tracking-wider text-right">CONF.</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {picks.map((pick, idx) => {
+                      const catBadge = getCategoryBadge(pick.category);
+                      const edge = pick.edge ?? (pick.probability - pick.implied_prob);
+                      const isPositiveEdge = edge >= 5;
+                      return (
+                        <tr key={idx} className="hover:bg-white/5 transition-colors">
+                          <td className="py-3 px-3 text-xs text-slate-600 font-mono">
+                            {String(idx + 1).padStart(2, '0')}
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide border ${catBadge.cls}`}>
+                              {catBadge.label}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-[12px] font-medium text-white max-w-[180px]">
+                            {pick.market}
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            <span className="text-[12px] font-mono font-bold text-emerald-400">
+                              {pick.probability.toFixed(1)}%
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            <span className="text-[11px] font-mono text-slate-400">
+                              {pick.odds ? pick.odds.toFixed(2) : '—'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            <span className={`text-[12px] font-mono font-bold ${isPositiveEdge ? 'text-emerald-400' : 'text-slate-500'}`}>
+                              {edge >= 0 ? '+' : ''}{edge.toFixed(1)}%
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            {pick.confidence === 'Very High' && (
+                              <span className="text-[9px] font-bold text-emerald-400 uppercase">V.High</span>
+                            )}
+                            {pick.confidence === 'High' && (
+                              <span className="text-[9px] font-bold text-green-400 uppercase">High</span>
+                            )}
+                            {pick.confidence === 'Medium' && (
+                              <span className="text-[9px] font-bold text-yellow-500 uppercase">Med</span>
+                            )}
+                            {!pick.confidence && (
+                              <span className="text-[9px] text-slate-600">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── Poisson Expected Goals (xG) Panel ─────────── */}
       {poisson && (
@@ -422,43 +460,6 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
                 </div>
               ))}
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Value Detections ─────────────────────────── */}
-      {analysis.value_selections && analysis.value_selections.length > 0 && (
-        <div className="mb-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Trophy className="w-4 h-4 text-amber-400" />
-            <h3 className="text-xs font-bold tracking-[0.15em] text-amber-300 uppercase">Value Detections</h3>
-          </div>
-          <div className="space-y-2">
-            {analysis.value_selections.map((vs, idx) => {
-              const vstyle = getVerdictStyle(vs.verdict);
-              return (
-                <div key={idx} className={`bg-surface-2 border rounded-xl p-3 flex items-center justify-between animate-slide-in ${vs.verdict === 'Best Choice' ? 'border-amber-400/30' : 'border-border'}`} style={{ animationDelay: `${idx * 0.06}s` }}>
-                  <div className="flex items-center gap-2">
-                    <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider border ${vstyle.cls}`}>
-                      {vstyle.icon}
-                      {vs.verdict}
-                    </span>
-                    <span className="text-white text-sm font-medium">{vs.pattern}</span>
-                    {vs.pillar && (
-                      <span className="flex items-center gap-0.5 text-[9px] text-slate-600">
-                        {getPillarIcon(vs.pillar)} {vs.pillar}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3 text-[11px]">
-                    <span className="text-slate-500">Prob: <span className="text-white font-bold">{vs.ic}%</span></span>
-                    <span className={`font-bold ${vs.value_edge > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                      Edge: {vs.value_edge > 0 ? '+' : ''}{vs.value_edge}%
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
           </div>
         </div>
       )}
