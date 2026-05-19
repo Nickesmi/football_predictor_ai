@@ -2,23 +2,30 @@
 Isotonic Calibration Engine — Phase 3 Priority #1
 
 Fits a monotonic calibration function per market type using sklearn
-IsotonicRegression. This corrects the systematic overconfidence bias
-(+8% gap) discovered in the prediction log.
+IsotonicRegression on **binned hit rates** (not raw binary outcomes).
+
+Why binning matters:
+    Raw isotonic on binary (0/1) outcomes creates a noisy step function
+    that memorizes training data — mapping high probabilities to 100%.
+    By pre-binning into 2.5% buckets and fitting on bin-level hit rates
+    (with Laplace smoothing), we get a smooth, generalizable curve.
 
 Architecture:
     1. Loads (predicted_prob, actual_outcome) pairs from prediction_log
-    2. Fits IsotonicRegression per market_type
-    3. Stores fitted models as JSON in calibration_models table
-    4. Provides calibrate(raw_prob, market_type) → calibrated_prob
+    2. Bins into 2.5% buckets, computes smoothed hit rate per bucket
+    3. Fits IsotonicRegression on (bin_center, smoothed_hit_rate, weight)
+    4. Clips output to [2%, 95%] — nothing in sports is certain
+    5. Stores fitted models as JSON in calibration_models table
 
 Minimum samples: 200 per market type (below this, uses shrinkage fallback)
-Refit trigger: every 50 new settled predictions per market type
 
 Key design decisions:
     - Separate model per market type (goals, result, btts, etc.)
     - Probabilities stored as 0-100 scale throughout
     - Thread-safe: models are immutable once fitted
     - Fallback: mild shrinkage toward 50% when insufficient data
+    - Laplace smoothing: 2 pseudocounts per bin (prevents 0%/100%)
+    - Hard ceiling: 95% max output (no sports event is certain)
 """
 
 import json
@@ -34,6 +41,55 @@ logger = logging.getLogger("football_predictor")
 MIN_SAMPLES_FOR_FIT = 200
 # Ideal samples for high-quality calibration
 IDEAL_SAMPLES = 500
+
+# ── Output bounds ──────────────────────────────────────────────────
+# Nothing in sports is 0% or 100%.  Cap outputs to prevent
+# downstream Kelly blowups and false certainty.
+CALIBRATED_FLOOR = 2.0   # minimum calibrated probability (%)
+CALIBRATED_CEILING = 95.0  # maximum calibrated probability (%)
+
+# ── Binning parameters ────────────────────────────────────────────
+BIN_WIDTH = 2.5   # percentage points per bin
+MIN_BIN_SAMPLES = 5  # bins with fewer samples are excluded from fit
+LAPLACE_ALPHA = 2  # pseudocounts for Laplace smoothing (higher = more conservative)
+
+
+def _bin_predictions(probs: np.ndarray, outcomes: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Bin predictions into fixed-width buckets and compute smoothed hit rates.
+
+    Returns:
+        bin_centers: (K,) array of bin center probabilities (0-1 scale)
+        hit_rates:   (K,) array of Laplace-smoothed hit rates per bin
+        weights:     (K,) array of sample counts per bin (for weighted fit)
+    """
+    bin_edges = np.arange(0, 100 + BIN_WIDTH, BIN_WIDTH)
+    n_bins = len(bin_edges) - 1
+
+    centers = []
+    rates = []
+    sample_weights = []
+
+    for i in range(n_bins):
+        lo, hi = bin_edges[i], bin_edges[i + 1]
+        mask = (probs >= lo) & (probs < hi)
+        if i == n_bins - 1:  # last bin includes upper edge
+            mask = (probs >= lo) & (probs <= hi)
+
+        n = int(mask.sum())
+        if n < MIN_BIN_SAMPLES:
+            continue
+
+        wins = float(outcomes[mask].sum())
+
+        # Laplace smoothing: (wins + α) / (n + 2α)
+        # This pulls extreme bins (all wins / all losses) toward the center
+        smoothed_rate = (wins + LAPLACE_ALPHA) / (n + 2 * LAPLACE_ALPHA)
+
+        centers.append((lo + hi) / 2.0 / 100.0)  # convert to 0-1
+        rates.append(smoothed_rate)
+        sample_weights.append(n)
+
+    return np.array(centers), np.array(rates), np.array(sample_weights)
 
 
 class IsotonicCalibrator:
@@ -59,12 +115,12 @@ class IsotonicCalibrator:
         """
         from sklearn.isotonic import IsotonicRegression
 
-        # Get all settled predictions grouped by market type
+        # Get all settled predictions grouped by market type, ordered chronologically
         rows = conn.execute(
             """SELECT market_type, predicted_prob, actual_outcome
                FROM prediction_log
                WHERE actual_outcome IS NOT NULL
-               ORDER BY market_type, predicted_prob"""
+               ORDER BY market_type, id"""
         ).fetchall()
 
         if not rows:
@@ -82,61 +138,89 @@ class IsotonicCalibrator:
         summary = {}
         for market_type, data in groups.items():
             n = len(data)
-            probs = np.array([d[0] for d in data])
-            outcomes = np.array([d[1] for d in data])
-
-            # Pre-calibration gap
-            avg_pred = float(np.mean(probs))
-            avg_actual = float(np.mean(outcomes)) * 100
-            gap_before = round(avg_pred - avg_actual, 1)
-
+            
             if n < MIN_SAMPLES_FOR_FIT:
                 summary[market_type] = {
                     "samples": n,
                     "fitted": False,
                     "reason": f"need {MIN_SAMPLES_FOR_FIT}, have {n}",
+                    "gap_before": 0.0,
+                }
+                continue
+
+            # ── TIME-SERIES SPLIT (Out-Of-Sample Evaluation) ──
+            # Train on the first 80%, test on the most recent 20%
+            split_idx = int(n * 0.8)
+            train_data = data[:split_idx]
+            test_data = data[split_idx:]
+            
+            train_probs = np.array([d[0] for d in train_data])
+            train_outcomes = np.array([d[1] for d in train_data])
+            
+            test_probs = np.array([d[0] for d in test_data])
+            test_outcomes = np.array([d[1] for d in test_data])
+
+            # Pre-calibration gap (on test set)
+            avg_pred_test = float(np.mean(test_probs)) if len(test_probs) > 0 else 0.0
+            avg_actual_test = float(np.mean(test_outcomes)) * 100 if len(test_outcomes) > 0 else 0.0
+            gap_before = round(avg_pred_test - avg_actual_test, 1)
+
+            # ── Pre-bin training data to prevent overfitting ──
+            # We aggregate into 2.5% bins and fit on smoothed hit rates.
+            bin_centers, hit_rates, weights = _bin_predictions(train_probs, train_outcomes)
+
+            if len(bin_centers) < 3:
+                summary[market_type] = {
+                    "samples": n,
+                    "fitted": False,
+                    "reason": f"only {len(bin_centers)} bins with enough samples in train set",
                     "gap_before": gap_before,
                 }
                 continue
 
-            # Fit isotonic regression
-            # Convert probs from 0-100 to 0-1 for fitting
-            X = probs / 100.0
-            y = outcomes.astype(float)
-
             iso = IsotonicRegression(
-                y_min=0.0, y_max=1.0,
+                y_min=CALIBRATED_FLOOR / 100.0,
+                y_max=CALIBRATED_CEILING / 100.0,
                 increasing=True,
                 out_of_bounds="clip",
             )
-            iso.fit(X, y)
+            # Weighted fit: bins with more samples get more influence
+            iso.fit(bin_centers, hit_rates, sample_weight=weights)
 
             self._models[market_type] = iso
             self._metadata[market_type] = {
                 "samples": n,
+                "train_samples": len(train_data),
+                "test_samples": len(test_data),
+                "bins_used": len(bin_centers),
                 "fitted_at": datetime.utcnow().isoformat(),
             }
 
-            # Post-calibration gap
-            calibrated = iso.predict(X) * 100
-            avg_calibrated = float(np.mean(calibrated))
-            gap_after = round(avg_calibrated - avg_actual, 1)
+            # Post-calibration gap (evaluate out-of-sample on test set)
+            X_test = test_probs / 100.0
+            calibrated_test = np.clip(iso.predict(X_test) * 100, CALIBRATED_FLOOR, CALIBRATED_CEILING)
+            avg_calibrated_test = float(np.mean(calibrated_test)) if len(calibrated_test) > 0 else 0.0
+            gap_after = round(avg_calibrated_test - avg_actual_test, 1)
 
-            # Brier and Log Loss for the calibrated probabilities
+            # Brier and Log Loss for the calibrated probabilities (out-of-sample)
             brier = 0.0
-            log_loss = 0.0
+            log_loss_val = 0.0
             eps = 1e-7
-            for p_val, y_val in zip(calibrated / 100.0, outcomes):
-                p_val = max(eps, min(1 - eps, p_val))
+            for p_val, y_val in zip(calibrated_test / 100.0, test_outcomes):
+                p_val = max(eps, min(1 - eps, float(p_val)))
                 y_val = float(y_val)
                 brier += (p_val - y_val) ** 2
-                log_loss += -(y_val * np.log(p_val) + (1 - y_val) * np.log(1 - p_val))
-            
-            brier_score = round(brier / n, 4) if n > 0 else 0.0
-            log_loss_score = round(log_loss / n, 4) if n > 0 else 0.0
+                log_loss_val += -(y_val * np.log(p_val) + (1 - y_val) * np.log(1 - p_val))
+
+            test_n = len(test_data)
+            brier_score = round(brier / test_n, 4) if test_n > 0 else 0.0
+            log_loss_score = round(log_loss_val / test_n, 4) if test_n > 0 else 0.0
 
             summary[market_type] = {
                 "samples": n,
+                "train_samples": len(train_data),
+                "test_samples": test_n,
+                "bins_used": len(bin_centers),
                 "fitted": True,
                 "gap_before": gap_before,
                 "gap_after": gap_after,
@@ -149,8 +233,9 @@ class IsotonicCalibrator:
             self._store_model(conn, market_type, iso, n, brier_score, log_loss_score)
 
             logger.info(
-                f"Isotonic fit [{market_type}]: {n} samples, "
-                f"gap {gap_before:+.1f}% → {gap_after:+.1f}%"
+                f"Isotonic fit [{market_type}]: {n} samples ({len(bin_centers)} bins), "
+                f"gap {gap_before:+.1f}% → {gap_after:+.1f}%, "
+                f"Brier={brier_score:.4f}"
             )
 
         self._loaded = True
@@ -207,7 +292,8 @@ class IsotonicCalibrator:
 
                 # Reconstruct isotonic model from breakpoints
                 iso = IsotonicRegression(
-                    y_min=0.0, y_max=1.0,
+                    y_min=CALIBRATED_FLOOR / 100.0,
+                    y_max=CALIBRATED_CEILING / 100.0,
                     increasing=True,
                     out_of_bounds="clip",
                 )
@@ -231,6 +317,7 @@ class IsotonicCalibrator:
         """Calibrate a raw probability (0-100 scale) using fitted isotonic model.
 
         Falls back to mild shrinkage if no model is available.
+        Output is always clamped to [CALIBRATED_FLOOR, CALIBRATED_CEILING].
 
         Args:
             raw_prob: model probability in 0-100 scale
@@ -243,12 +330,12 @@ class IsotonicCalibrator:
             iso = self._models[market_type]
             # Convert to 0-1, predict, convert back to 0-100
             calibrated = float(iso.predict(np.array([[raw_prob / 100.0]]))[0]) * 100
-            return round(max(0, min(100, calibrated)), 1)
+            return round(max(CALIBRATED_FLOOR, min(CALIBRATED_CEILING, calibrated)), 1)
 
         # Fallback: mild shrinkage toward 50%
         # This is conservative but prevents overconfidence when uncalibrated
         shrunk = 0.85 * raw_prob + 0.15 * 50
-        return round(max(0, min(100, shrunk)), 1)
+        return round(max(CALIBRATED_FLOOR, min(CALIBRATED_CEILING, shrunk)), 1)
 
     def get_status(self) -> dict:
         """Return calibration status per market type."""
@@ -258,6 +345,7 @@ class IsotonicCalibrator:
             status[mt] = {
                 "fitted": has_model,
                 "samples": meta["samples"],
+                "bins_used": meta.get("bins_used"),
                 "fitted_at": meta["fitted_at"],
             }
         return status
@@ -274,6 +362,7 @@ class IsotonicCalibrator:
         curve = []
         for raw in np.linspace(0, 100, steps + 1):
             cal = float(iso.predict(np.array([[raw / 100]]))[0]) * 100
+            cal = max(CALIBRATED_FLOOR, min(CALIBRATED_CEILING, cal))
             curve.append({
                 "raw": round(raw, 1),
                 "calibrated": round(cal, 1),

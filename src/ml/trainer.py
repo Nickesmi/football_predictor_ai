@@ -31,7 +31,11 @@ from src.ml.feature_builder import FEATURE_COLUMNS
 
 TARGET_MARKETS = ["btts", "over_1_5", "over_2_5", "over_3_5", "home_win", "draw", "ht_over_0_5"]
 
-DEFAULT_MODEL_DIR = Path(__file__).parent.parent.parent / "models"
+import sys
+if getattr(sys, 'frozen', False):
+    DEFAULT_MODEL_DIR = Path(sys._MEIPASS) / "models"
+else:
+    DEFAULT_MODEL_DIR = Path(__file__).parent.parent.parent / "models"
 
 
 class XGBoostTrainer:

@@ -46,10 +46,16 @@ def get_api_key() -> str:
     return os.getenv("ODDS_API_KEY", "")
 
 
+# All markets we request from TheOddsAPI
+# Free tier supports: h2h, totals, spreads
+# Paid tier adds: btts, double_chance, totals_h1, draw_no_bet, etc.
+REQUESTED_MARKETS = "h2h,totals,spreads,btts,double_chance,totals_h1,draw_no_bet"
+
+
 def fetch_odds_for_sport(
     sport_key: str,
     regions: str = "eu",
-    markets: str = "h2h,totals",
+    markets: str = None,
     odds_format: str = "decimal",
 ) -> list[dict]:
     """
@@ -58,11 +64,14 @@ def fetch_odds_for_sport(
     Args:
         sport_key: e.g. "soccer_epl"
         regions: "eu", "uk", "us"
-        markets: "h2h" (1X2), "totals" (O/U), "spreads" (handicap)
+        markets: comma-separated market keys (defaults to REQUESTED_MARKETS)
         odds_format: "decimal" or "american"
 
     Returns list of event dicts with bookmaker odds.
     """
+    if markets is None:
+        markets = REQUESTED_MARKETS
+
     api_key = get_api_key()
     if not api_key:
         logger.warning("ODDS_API_KEY not set — cannot fetch real odds")
@@ -89,6 +98,105 @@ def fetch_odds_for_sport(
     except Exception as e:
         logger.error(f"Odds API error for {sport_key}: {e}")
         return []
+
+
+def fetch_normalized_odds_for_match(
+    sport_key: str,
+    home_team: str,
+    away_team: str,
+    preferred_bookmakers: list[str] = None,
+) -> list[dict]:
+    """Fetch odds from TheOddsAPI and normalize to internal market names.
+
+    Returns list of dicts in the format the execution engine expects:
+        [{"market": "Over 2.5 Goals", "odds": 1.62, "bookmaker": "pinnacle"}, ...]
+
+    Args:
+        sport_key: TheOddsAPI sport key (e.g. "soccer_epl")
+        home_team: home team name for matching
+        away_team: away team name for matching
+        preferred_bookmakers: list of bookmaker keys to prioritize
+            (e.g. ["pinnacle", "bet365"]). If None, uses best odds across all.
+    """
+    from src.engine.execution_engine import normalize_bookmaker_market
+
+    if preferred_bookmakers is None:
+        preferred_bookmakers = ["pinnacle", "bet365", "unibet", "betfair"]
+
+    events = fetch_odds_for_sport(sport_key)
+    if not events:
+        return []
+
+    # Find our match in the events
+    target_event = None
+    for event in events:
+        if (_fuzzy_match(home_team.lower(), event.get("home_team", "").lower()) and
+                _fuzzy_match(away_team.lower(), event.get("away_team", "").lower())):
+            target_event = event
+            break
+
+    if not target_event:
+        logger.info(f"Match {home_team} vs {away_team} not found in Odds API")
+        return []
+
+    api_home = target_event.get("home_team", "")
+    api_away = target_event.get("away_team", "")
+
+    # Collect best odds per market across bookmakers
+    # Structure: market_name → {"odds": float, "bookmaker": str}
+    best_odds: dict[str, dict] = {}
+
+    # Sort bookmakers: preferred first
+    bookmakers = sorted(
+        target_event.get("bookmakers", []),
+        key=lambda bk: (
+            0 if bk.get("key", "") in preferred_bookmakers else 1,
+            preferred_bookmakers.index(bk.get("key", ""))
+            if bk.get("key", "") in preferred_bookmakers else 999,
+        ),
+    )
+
+    for bookmaker in bookmakers:
+        bk_name = bookmaker.get("key", "unknown")
+
+        for market in bookmaker.get("markets", []):
+            market_key = market.get("key", "")
+
+            for outcome in market.get("outcomes", []):
+                outcome_name = outcome.get("name", "")
+                point = outcome.get("point")
+                odds_val = outcome.get("price", 0)
+
+                if odds_val <= 1.0:
+                    continue
+
+                # Normalize to our internal name
+                internal_name = normalize_bookmaker_market(
+                    api_market_key=market_key,
+                    outcome_name=outcome_name,
+                    point=point,
+                    home_team=api_home,
+                    away_team=api_away,
+                )
+
+                if not internal_name:
+                    continue
+
+                # Keep best odds (highest) per market
+                existing = best_odds.get(internal_name)
+                if not existing or odds_val > existing["odds"]:
+                    best_odds[internal_name] = {
+                        "market": internal_name,
+                        "odds": round(odds_val, 3),
+                        "bookmaker": bk_name,
+                    }
+
+    result = list(best_odds.values())
+    logger.info(
+        f"Normalized {len(result)} odds for {home_team} vs {away_team} "
+        f"from {len(bookmakers)} bookmakers"
+    )
+    return result
 
 
 def fetch_and_store_odds(

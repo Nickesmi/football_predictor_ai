@@ -10,8 +10,14 @@ from typing import Optional
 
 logger = logging.getLogger("football_predictor")
 
+import sys
+
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-DB_PATH = _PROJECT_ROOT / "data" / "engine.db"
+
+if getattr(sys, 'frozen', False):
+    DB_PATH = Path.home() / ".football_predictor" / "engine.db"
+else:
+    DB_PATH = _PROJECT_ROOT / "data" / "engine.db"
 
 _connection: Optional[sqlite3.Connection] = None
 
@@ -163,6 +169,82 @@ def init_db(conn: sqlite3.Connection) -> None:
             log_loss        REAL,
             created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
+        -- ═══ PHASE 4: Live Adaptive Pipeline ═══
+        -- Persistent team state that evolves after every match.
+        -- This is THE core table that makes predictions dynamic.
+        CREATE TABLE IF NOT EXISTS team_state (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            team_name       TEXT NOT NULL,
+            team_name_lower TEXT NOT NULL,
+            league          TEXT NOT NULL,
+            venue           TEXT NOT NULL,       -- 'home' | 'away' | 'overall'
+
+            -- ELO Rating (evolves after every match)
+            elo             REAL DEFAULT 1500.0,
+
+            -- Strength Ratings (attack/defense relative to league avg)
+            attack_rating   REAL DEFAULT 1.0,
+            defense_rating  REAL DEFAULT 1.0,
+
+            -- Rolling Averages (exponentially weighted, recent matches)
+            rolling_scored      REAL DEFAULT 1.2,
+            rolling_conceded    REAL DEFAULT 1.2,
+            rolling_xg          REAL DEFAULT 1.2,
+            rolling_xga         REAL DEFAULT 1.2,
+            rolling_corners     REAL DEFAULT 5.0,
+            rolling_cards       REAL DEFAULT 2.0,
+
+            -- Form Metrics
+            form_last5      REAL DEFAULT 0.5,    -- win% from last 5 matches
+            form_last10     REAL DEFAULT 0.5,    -- win% from last 10 matches
+            win_streak      INTEGER DEFAULT 0,
+            unbeaten_streak INTEGER DEFAULT 0,
+
+            -- Fatigue
+            matches_last_14d INTEGER DEFAULT 0,
+            rest_days        INTEGER DEFAULT 7,
+
+            -- Meta
+            matches_played  INTEGER DEFAULT 0,
+            last_match_date DATE,
+            last_match_id   TEXT,
+            updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+            UNIQUE(team_name_lower, league, venue)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_teamstate_name ON team_state(team_name_lower);
+        CREATE INDEX IF NOT EXISTS idx_teamstate_league ON team_state(league);
+
+        -- Match History — every finished match fed back into the system
+        CREATE TABLE IF NOT EXISTS match_history (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            match_id        TEXT UNIQUE NOT NULL,
+            match_date      DATE NOT NULL,
+            league          TEXT NOT NULL,
+            home_team       TEXT NOT NULL,
+            away_team       TEXT NOT NULL,
+            home_goals      INTEGER NOT NULL,
+            away_goals      INTEGER NOT NULL,
+            home_xg         REAL,
+            away_xg         REAL,
+            home_corners    INTEGER,
+            away_corners    INTEGER,
+            home_cards      INTEGER,
+            away_cards      INTEGER,
+
+            -- ELO snapshots at time of ingestion
+            home_elo_before REAL,
+            away_elo_before REAL,
+            home_elo_after  REAL,
+            away_elo_after  REAL,
+
+            ingested_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_matchhist_date ON match_history(match_date);
+        CREATE INDEX IF NOT EXISTS idx_matchhist_team ON match_history(home_team);
     """)
     conn.commit()
 

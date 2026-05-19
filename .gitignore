@@ -12,6 +12,16 @@ dist
 dist-ssr
 *.local
 
+# SQLite database files
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Desktop build artifacts
+build/
+Dist/
+*.spec
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -30,5 +40,11 @@ __pycache__/
 venv/
 .env
 
+# Claude agent directory
+Claude/
+
 # Tests
 .pytest_cache/
+Claude
+agent_prompt.md
+patch_markets.py

@@ -10,6 +10,10 @@ const TIER_STYLES = {
   4: { accent: "text-blue-400", bg: "bg-blue-500/5", border: "border-blue-500/15", badge: "bg-blue-500/10 text-blue-400", barFill: "from-blue-500 to-blue-400", label: "Tier 4" },
   5: { accent: "text-violet-400", bg: "bg-violet-500/5", border: "border-violet-500/15", badge: "bg-violet-500/10 text-violet-400", barFill: "from-violet-500 to-violet-400", label: "Tier 5" },
   6: { accent: "text-slate-400", bg: "bg-slate-500/5", border: "border-slate-500/15", badge: "bg-slate-500/10 text-slate-400", barFill: "from-slate-500 to-slate-400", label: "Tier 6" },
+  7: { accent: "text-stone-400", bg: "bg-stone-500/5", border: "border-stone-500/15", badge: "bg-stone-500/10 text-stone-400", barFill: "from-stone-500 to-stone-400", label: "Tier 7" },
+  8: { accent: "text-zinc-400", bg: "bg-zinc-500/5", border: "border-zinc-500/15", badge: "bg-zinc-500/10 text-zinc-400", barFill: "from-zinc-500 to-zinc-400", label: "Tier 8" },
+  9: { accent: "text-neutral-400", bg: "bg-neutral-500/5", border: "border-neutral-500/15", badge: "bg-neutral-500/10 text-neutral-400", barFill: "from-neutral-500 to-neutral-400", label: "Tier 9" },
+  10: { accent: "text-gray-500", bg: "bg-gray-500/5", border: "border-gray-500/15", badge: "bg-gray-500/10 text-gray-500", barFill: "from-gray-500 to-gray-400", label: "Tier 10" },
 };
 
 const getAccuracyColor = (acc) => {
@@ -284,7 +288,7 @@ const ResultsTracker = ({ onBack, selectedDate }) => {
           <div className="flex flex-col items-center justify-center py-20">
             <Loader2 className="w-10 h-10 animate-spin text-amber-500 mb-4" />
             <p className="text-amber-400/60 text-xs tracking-[0.2em] uppercase animate-pulse">Verifying Predictions…</p>
-            <p className="text-slate-600 text-[10px] mt-2">Evaluating 6 tiers × 6 picks per match</p>
+            <p className="text-slate-600 text-[10px] mt-2">Evaluating 10 tiers × 6 picks per match</p>
           </div>
         ) : error ? (
           <div className="flex flex-col items-center justify-center py-20">
@@ -349,7 +353,7 @@ const ResultsTracker = ({ onBack, selectedDate }) => {
                 </div>
               </div>
               <div className="flex justify-between mt-2 text-[9px] text-slate-600">
-                <span>{summary.total_matches} matches × 36 picks</span>
+                <span>{summary.total_matches} matches × 60 picks</span>
                 <span>
                   <span className="text-emerald-500">■</span> Correct
                   <span className="text-red-500 ml-2">■</span> Wrong
@@ -377,7 +381,7 @@ const ResultsTracker = ({ onBack, selectedDate }) => {
                 <div className="flex items-center gap-2 mb-4">
                   <Shield className="w-4 h-4 text-yellow-400" />
                   <h3 className="text-xs font-bold tracking-[0.15em] text-white uppercase">Accuracy by Tier</h3>
-                  <span className="text-[9px] text-slate-500 ml-auto">6 tiers × all matches</span>
+                  <span className="text-[9px] text-slate-500 ml-auto">10 tiers × all matches</span>
                 </div>
                 <div className="space-y-2">
                   {tierSummary.map((tier) => (

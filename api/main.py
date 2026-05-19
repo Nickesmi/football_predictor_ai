@@ -452,7 +452,7 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
     for t in [7, 8, 9, 10, 11]:
         add(f"Over {t}.5 Corners", _poisson_over(exp_total_corn, t))
         add(f"Under {t}.5 Corners", 100 - _poisson_over(exp_total_corn, t))
-    for t in [3, 4, 5, 6]:
+    for t in [2, 3, 4, 5, 6, 7]:
         add(f"{home_name} Over {t}.5 Corners", p_over(exp_h_corn, t))
         add(f"{home_name} Under {t}.5 Corners", 100 - p_over(exp_h_corn, t))
         add(f"{away_name} Over {t}.5 Corners", p_over(exp_a_corn, t))
@@ -615,37 +615,31 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
             (f"EH {away_name} -{spread} (Lose)", eh_hw2),
         ])
 
-    # ━━ CORNERS — HALF-BASED ━━
+    # ━━ CORNERS — HALF-BASED (First Half only) ━━
     fh_h_corn = exp_h_corn * 0.48; fh_a_corn = exp_a_corn * 0.48
     sh_h_corn = exp_h_corn * 0.52; sh_a_corn = exp_a_corn * 0.52
     fh_total_corn = fh_h_corn + fh_a_corn; sh_total_corn = sh_h_corn + sh_a_corn
     for t in [3, 4, 5]:
         add(f"FH Over {t}.5 Corners", _poisson_over(fh_total_corn, t))
         add(f"FH Under {t}.5 Corners", 100 - _poisson_over(fh_total_corn, t))
-        add(f"SH Over {t}.5 Corners", _poisson_over(sh_total_corn, t))
-        add(f"SH Under {t}.5 Corners", 100 - _poisson_over(sh_total_corn, t))
-    for t in [1, 2, 3]:
-        for prefix, lh, la in [("FH", fh_h_corn, fh_a_corn), ("SH", sh_h_corn, sh_a_corn)]:
-            add(f"{prefix} {home_name} Over {t}.5 Corners", p_over(lh, t))
-            add(f"{prefix} {home_name} Under {t}.5 Corners", 100 - p_over(lh, t))
-            add(f"{prefix} {away_name} Over {t}.5 Corners", p_over(la, t))
-            add(f"{prefix} {away_name} Under {t}.5 Corners", 100 - p_over(la, t))
+    for t in [0, 1, 2, 3, 4]:
+        add(f"FH {home_name} Over {t}.5 Corners", p_over(fh_h_corn, t))
+        add(f"FH {home_name} Under {t}.5 Corners", 100 - p_over(fh_h_corn, t))
+        add(f"FH {away_name} Over {t}.5 Corners", p_over(fh_a_corn, t))
+        add(f"FH {away_name} Under {t}.5 Corners", 100 - p_over(fh_a_corn, t))
 
-    # ━━ CARDS — HALF-BASED ━━
+    # ━━ CARDS — HALF-BASED (First Half only) ━━
     fh_h_card = exp_h_card * 0.45; fh_a_card = exp_a_card * 0.45
     sh_h_card = exp_h_card * 0.55; sh_a_card = exp_a_card * 0.55
     fh_total_card = fh_h_card + fh_a_card; sh_total_card = sh_h_card + sh_a_card
     for t in [0, 1, 2, 3]:
         add(f"FH Over {t}.5 Cards", _poisson_over(fh_total_card, t))
         add(f"FH Under {t}.5 Cards", 100 - _poisson_over(fh_total_card, t))
-        add(f"SH Over {t}.5 Cards", _poisson_over(sh_total_card, t))
-        add(f"SH Under {t}.5 Cards", 100 - _poisson_over(sh_total_card, t))
     for t in [0, 1]:
-        for prefix, lh, la in [("FH", fh_h_card, fh_a_card), ("SH", sh_h_card, sh_a_card)]:
-            add(f"{prefix} {home_name} Over {t}.5 Cards", p_over(lh, t))
-            add(f"{prefix} {home_name} Under {t}.5 Cards", 100 - p_over(lh, t))
-            add(f"{prefix} {away_name} Over {t}.5 Cards", p_over(la, t))
-            add(f"{prefix} {away_name} Under {t}.5 Cards", 100 - p_over(la, t))
+        add(f"FH {home_name} Over {t}.5 Cards", p_over(fh_h_card, t))
+        add(f"FH {home_name} Under {t}.5 Cards", 100 - p_over(fh_h_card, t))
+        add(f"FH {away_name} Over {t}.5 Cards", p_over(fh_a_card, t))
+        add(f"FH {away_name} Under {t}.5 Cards", 100 - p_over(fh_a_card, t))
 
     # ━━ HALF WITH MOST ACTIVITY ━━
     if fh_total_corn + sh_total_corn > 0:
@@ -756,13 +750,94 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
         for m in raw:
             m["raw_probability"] = m["probability"]  # preserve pre-isotonic
             m["market_type"] = _classify_market_type(m["market"])
-            m["probability"] = _iso_cal.calibrate(m["raw_probability"], m["market_type"])
+            
+            # Bypassing isotonic calibration for pure Poisson distributions to prevent
+            # double-calibration squashing (which makes Over 0.5 identical to Over 1.5).
+            if m["market_type"] not in ["corners", "cards", "goals", "team_goals", "half"]:
+                m["probability"] = _iso_cal.calibrate(m["raw_probability"], m["market_type"])
     except Exception as iso_err:
         # Fallback: if isotonic fails, raw_probability == probability
         logger.warning(f"Isotonic calibration failed, using raw: {iso_err}")
         for m in raw:
             m["raw_probability"] = m["probability"]
             m["market_type"] = "unknown"
+
+    # ══════════════════════════════════════════════════════
+    # POST-CALIBRATION COHERENCE — Enforce logical constraints
+    # ══════════════════════════════════════════════════════
+    #
+    # Independent isotonic models per market type can violate:
+    #   P(FH Over X) ≤ P(FT Over X)    (half is subset of full)
+    #   P(SH Over X) ≤ P(FT Over X)
+    #   P(Over X+1) ≤ P(Over X)         (monotone in threshold)
+    #
+    # Fix: build an index, find pairs, clamp the subset to ≤ superset.
+    #
+    market_index = {m["market"]: m for m in raw}
+
+    def _clamp_subset(subset_name: str, superset_name: str):
+        """Ensure P(subset) ≤ P(superset). If violated, pull subset down."""
+        sub = market_index.get(subset_name)
+        sup = market_index.get(superset_name)
+        if sub and sup and sub["probability"] > sup["probability"]:
+            sub["probability"] = sup["probability"]
+
+    def _clamp_half_scoring(half_name: str, ft_name: str, max_ratio: float):
+        """Ensure half-period 'to score' is strictly below FT team scoring.
+
+        Unlike _clamp_subset which sets them equal when violated, this
+        caps the half value to max_ratio × FT value, preventing the
+        display bug where half scoring == full-time scoring.
+        """
+        sub = market_index.get(half_name)
+        sup = market_index.get(ft_name)
+        if sub and sup:
+            ceiling = round(sup["probability"] * max_ratio, 1)
+            if sub["probability"] > ceiling:
+                sub["probability"] = ceiling
+
+    # ── Rule 1: FH/SH team goals ≤ FT team goals ──
+    for team in [home_name, away_name]:
+        for t in [0, 1, 2]:
+            if t == 0:
+                # Over 0.5 = "team to score" — use proportional cap to avoid
+                # FH/SH showing identical value to FT
+                _clamp_half_scoring(f"FH {team} Over {t}.5 Goals", f"{team} Over {t}.5 Goals", 0.85)
+                _clamp_half_scoring(f"SH {team} Over {t}.5 Goals", f"{team} Over {t}.5 Goals", 0.90)
+            else:
+                _clamp_subset(f"FH {team} Over {t}.5 Goals", f"{team} Over {t}.5 Goals")
+                _clamp_subset(f"SH {team} Over {t}.5 Goals", f"{team} Over {t}.5 Goals")
+            # Under: FH Under ≥ FT Under  →  equivalently FT Under ≤ FH Under
+            _clamp_subset(f"{team} Under {t}.5 Goals", f"FH {team} Under {t}.5 Goals")
+            _clamp_subset(f"{team} Under {t}.5 Goals", f"SH {team} Under {t}.5 Goals")
+
+    # ── Rule 2: FH/SH total goals ≤ FT total goals ──
+    for t in [0, 1, 2, 3, 4]:
+        _clamp_subset(f"FH Over {t}.5 Goals", f"Over {t}.5 Goals")
+        _clamp_subset(f"SH Over {t}.5 Goals", f"Over {t}.5 Goals")
+        _clamp_subset(f"Under {t}.5 Goals", f"FH Under {t}.5 Goals")
+        _clamp_subset(f"Under {t}.5 Goals", f"SH Under {t}.5 Goals")
+
+    # ── Rule 3: FH/SH "to score" < FT "Over 0.5 Goals" for same team ──
+    # Use proportional caps instead of exact clamping to prevent
+    # half-period scoring from displaying the same value as FT scoring.
+    # FH ≤ 85% of FT (first half has fewer goals), SH ≤ 90% of FT.
+    for team in [home_name, away_name]:
+        _clamp_half_scoring(f"FH {team} to Score", f"{team} Over 0.5 Goals", 0.85)
+        _clamp_half_scoring(f"SH {team} to Score", f"{team} Over 0.5 Goals", 0.90)
+
+    # ── Rule 4: FH BTTS ≤ FT BTTS ──
+    _clamp_subset("FH BTTS - Yes", "BTTS - Yes")
+    _clamp_subset("SH BTTS - Yes", "BTTS - Yes")
+
+    # ── Rule 5: Over X+1 ≤ Over X (monotone in threshold) ──
+    for prefix in ["", "FH ", "SH "]:
+        for t in range(4):
+            _clamp_subset(f"{prefix}Over {t+1}.5 Goals", f"{prefix}Over {t}.5 Goals")
+    for t in range(10):
+        _clamp_subset(f"Over {t+1}.5 Corners", f"Over {t}.5 Corners")
+    for t in range(5):
+        _clamp_subset(f"Over {t+1}.5 Cards", f"Over {t}.5 Cards")
 
     section_order = ["Goals", "First Half", "Second Half", "Team Goals", "Result", "Handicaps", "Corners", "Cards"]
 
@@ -788,8 +863,8 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
     # Tier 6 = ranks 31-36 (lowest of the 36)
 
     PICKS_PER_TIER = 6
-    NUM_TIERS = 6
-    TOTAL_PICKS = PICKS_PER_TIER * NUM_TIERS  # 36
+    NUM_TIERS = 10
+    TOTAL_PICKS = PICKS_PER_TIER * NUM_TIERS  # 60
 
     all_sorted = sorted(raw, key=lambda x: x["probability"], reverse=True)
 
@@ -833,8 +908,9 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
         end = start + PICKS_PER_TIER
         tier_picks = list(top_36[start:end])
         
-        if shuffle_tiers:
-            random.shuffle(tier_picks)
+        # Randomize odds inside the tier
+        import random
+        random.shuffle(tier_picks)
 
         # Calculate tier stats
         probs = [p["probability"] for p in tier_picks] if tier_picks else [0]
@@ -848,12 +924,12 @@ def _compute_match_analysis(home_name: str, away_name: str, league_name: str = "
             "max_probability": round(max(probs), 1),
         })
 
-    if shuffle_tiers:
-        random.shuffle(tiers)
+    # Shuffle the tiers themselves so they appear in random order on the page
+    import random
+    random.shuffle(tiers)
 
-    # Legacy: flat top_picks for backward compat (all 36, shuffled)
+    # Legacy: flat top_picks for backward compat (sorted)
     top_picks = list(top_36)
-    random.shuffle(top_picks)
 
     # Also build per-section qualified view (≥80%)
     qualified = [m for m in raw if m["probability"] >= 80.0]
@@ -1008,11 +1084,16 @@ def get_fixtures_by_date(date_str: str):
     
     fixtures = []
     seen_ids = set()
+    seen_teams = set()
     for ev in events:
         f = _sofascore_to_fixture(ev)
-        # Match date filter (after timezone conversion) + dedup
-        if f["date"] == date_str and f["id"] not in seen_ids:
+        # Unique key for the two teams playing (independent of home/away order)
+        team_key = tuple(sorted([f["home_team"]["name"], f["away_team"]["name"]]))
+        
+        # Match date filter (after timezone conversion) + dedup by ID and Team names
+        if f["date"] == date_str and f["id"] not in seen_ids and team_key not in seen_teams:
             seen_ids.add(f["id"])
+            seen_teams.add(team_key)
             fixtures.append(f)
     
     fixtures.sort(key=lambda f: f["time"])
@@ -1539,6 +1620,31 @@ def get_results_verification(date_str: str):
         except Exception as log_err:
             logger.warning(f"Prediction logging failed for {event_id}: {log_err}")
 
+        # ── Phase 1.5: LIVE PIPELINE — Feed result back into team state ──
+        # This is what makes the system adaptive: each finished match
+        # updates ELO, rolling averages, and form metrics.
+        try:
+            from src.engine.live_updater import on_match_finished
+            from src.db.database import get_db
+            db = get_db()
+
+            on_match_finished(
+                conn=db,
+                match_id=str(event_id),
+                match_date=date_str,
+                league=league_name,
+                home_team=home_name,
+                away_team=away_name,
+                home_goals=home_goals,
+                away_goals=away_goals,
+                home_corners=stats.get("home_corners"),
+                away_corners=stats.get("away_corners"),
+                home_cards=stats.get("home_cards"),
+                away_cards=stats.get("away_cards"),
+            )
+        except Exception as live_err:
+            logger.warning(f"Live ingestion failed for {event_id}: {live_err}")
+
     # ── Phase 2: League-level quality filter ────────────────────
     # Group by league, exclude leagues with >25% NA matches
     league_stats = {}
@@ -1576,7 +1682,7 @@ def get_results_verification(date_str: str):
     total_na_excluded = 0
 
     # Per-tier global accumulators
-    tier_global = {t: {"correct": 0, "wrong": 0, "settled": 0} for t in range(1, 7)}
+    tier_global = {t: {"correct": 0, "wrong": 0, "settled": 0} for t in range(1, 11)}
 
     for match in raw_results:
         league = match["league_name"]
@@ -1624,7 +1730,7 @@ def get_results_verification(date_str: str):
     ) if total_settled_picks > 0 else 0.0
 
     tier_summary = []
-    for t in range(1, 7):
+    for t in range(1, 11):
         ts = tier_global[t]
         tier_acc = round(ts["correct"] / ts["settled"] * 100, 1) if ts["settled"] > 0 else 0
         tier_summary.append({
@@ -1735,6 +1841,70 @@ def auto_settle_picks():
         settled_count += 1
 
     return {"settled": settled_count, "remaining": len(unsettled) - settled_count}
+
+
+from pydantic import BaseModel
+class PickCreate(BaseModel):
+    match_id: str
+    market: str
+    selection: str
+    model_prob: float
+    implied_prob: float
+    edge: float
+    odds_at_pick: float
+    confidence: float
+    league_reliability: float
+    grade: str
+    stake_units: float
+
+
+@app.post("/api/picks/place")
+def place_pick(pick: PickCreate):
+    """Place a pick into the tracking portfolio."""
+    conn = get_db()
+    from src.db.picks_repo import insert_pick
+    try:
+        pick_id = insert_pick(conn, pick.dict())
+        return {"status": "ok", "pick_id": pick_id}
+    except Exception as e:
+        logger.error(f"Failed to insert pick: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+class ClvUpdate(BaseModel):
+    pick_id: int
+    closing_odds: float
+
+
+@app.post("/api/picks/update_clv")
+def update_pick_clv(payload: ClvUpdate):
+    """Update a pick with closing odds and calculate CLV."""
+    conn = get_db()
+    from src.db.picks_repo import update_closing_odds
+
+    pick = conn.execute("SELECT odds_at_pick FROM picks WHERE id = ?", (payload.pick_id,)).fetchone()
+    if not pick:
+        return {"status": "error", "message": "Pick not found"}
+
+    entry_odds = pick["odds_at_pick"]
+    closing_odds = payload.closing_odds
+    
+    if closing_odds <= 1.0:
+        return {"status": "error", "message": "Invalid closing odds"}
+
+    entry_implied = 100.0 / entry_odds
+    closing_implied = 100.0 / closing_odds
+    clv_pct = closing_implied - entry_implied
+
+    update_closing_odds(conn, payload.pick_id, closing_odds, round(clv_pct, 2))
+    
+    return {
+        "status": "ok",
+        "pick_id": payload.pick_id,
+        "clv_pct": round(clv_pct, 2),
+        "beat_closing_line": clv_pct > 0
+    }
+
 
 
 @app.get("/api/leagues/profiles")
@@ -1988,3 +2158,338 @@ def test_isotonic_calibration(raw_prob: float = 82.0, market_type: str = "goals"
         "has_fitted_model": market_type in cal._models,
         "correction": round(calibrated - raw_prob, 1),
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Execution Engine — Market-Constrained Betting Agent
+# ═══════════════════════════════════════════════════════════════════════
+
+from src.engine.execution_engine import (
+    find_executable_bets,
+    generate_simulated_odds,
+    compute_ev,
+    compute_edge,
+    compute_kelly,
+    MIN_ODDS, MAX_ODDS, MIN_CALIBRATED_PROB, MIN_EDGE, MIN_EV,
+    MAX_BETS_PER_MATCH, MAX_BETS_PER_DAY,
+    KELLY_FRACTION, MAX_STAKE_PCT,
+    TRADABLE_MARKETS,
+)
+
+
+@app.get("/api/execution/opportunities/{home}/{away}/{league}")
+def get_execution_opportunities(home: str, away: str, league: str, use_live_odds: bool = False):
+    """Find executable, positive-EV betting opportunities for a match.
+
+    This is the core execution endpoint. It:
+    1. Generates calibrated probabilities for ALL markets
+    2. Fetches real bookmaker odds (or simulates them)
+    3. Computes EV, edge, and Kelly sizing
+    4. Filters down to only tradable, positive-EV opportunities
+    5. Returns ONLY executable bets
+
+    Query params:
+        use_live_odds: if True, fetches from TheOddsAPI (requires ODDS_API_KEY)
+                      if False, uses simulated odds with 5% vig
+    """
+    try:
+        analysis = _compute_match_analysis(home, away, league, shuffle_tiers=False)
+    except Exception as e:
+        return {"error": f"Analysis failed: {str(e)}", "opportunities": []}
+
+    # Get odds
+    if use_live_odds:
+        from src.data.odds_fetcher import fetch_normalized_odds_for_match, SPORT_KEYS, get_api_key
+        if not get_api_key():
+            return {"error": "ODDS_API_KEY not set. Use use_live_odds=false for simulation.", "opportunities": []}
+
+        # Try to find the sport key for this league
+        sport_key = None
+        for sk, lid in SPORT_KEYS.items():
+            if league.lower() in sk.lower():
+                sport_key = sk
+                break
+        if not sport_key:
+            sport_key = "soccer_epl"  # default
+
+        bookmaker_odds = fetch_normalized_odds_for_match(sport_key, home, away)
+    else:
+        bookmaker_odds = generate_simulated_odds(analysis, home, away)
+
+    # Find executable bets
+    opportunities = find_executable_bets(
+        analysis=analysis,
+        bookmaker_odds=bookmaker_odds,
+        home_name=home,
+        away_name=away,
+        league_name=league,
+        match_id=f"{home}_vs_{away}",
+    )
+
+    # Build summary
+    total_markets_scanned = len(bookmaker_odds)
+    total_tradable = sum(1 for o in bookmaker_odds if any(
+        m["market"] == o["market"]
+        for sec in analysis.get("full_analysis", {}).values()
+        for m in sec
+    ))
+
+    return {
+        "match": f"{home} vs {away}",
+        "league": league,
+        "odds_source": "live" if use_live_odds else "simulated",
+        "total_bookmaker_markets": total_markets_scanned,
+        "total_matched_to_model": total_tradable,
+        "opportunities_found": len(opportunities),
+        "opportunities": [bet.to_dict() for bet in opportunities],
+        "filter_summary": {
+            "min_odds": MIN_ODDS,
+            "max_odds": MAX_ODDS,
+            "min_calibrated_prob": MIN_CALIBRATED_PROB,
+            "min_edge": MIN_EDGE,
+            "min_ev": MIN_EV,
+            "max_bets_per_match": MAX_BETS_PER_MATCH,
+            "kelly_fraction": KELLY_FRACTION,
+            "max_stake_pct": MAX_STAKE_PCT,
+        },
+    }
+
+
+@app.get("/api/execution/rules")
+def get_execution_rules():
+    """Return current execution rules and tradable market whitelist."""
+    return {
+        "rules": {
+            "min_odds": MIN_ODDS,
+            "max_odds": MAX_ODDS,
+            "min_calibrated_probability": MIN_CALIBRATED_PROB,
+            "min_edge_pct": MIN_EDGE,
+            "min_ev": MIN_EV,
+            "max_bets_per_match": MAX_BETS_PER_MATCH,
+            "max_bets_per_day": MAX_BETS_PER_DAY,
+            "kelly_fraction": KELLY_FRACTION,
+            "max_stake_pct": MAX_STAKE_PCT,
+        },
+        "tradable_markets": sorted(TRADABLE_MARKETS),
+        "excluded_market_types": ["cs", "cards", "corners", "combo"],
+        "focus_market_types": ["goals", "btts", "result", "handicap", "half"],
+    }
+
+
+@app.get("/api/execution/simulate")
+def simulate_execution(
+    calibrated_prob: float = 75.0,
+    odds: float = 1.55,
+):
+    """Test EV/Edge/Kelly computation on a single hypothetical bet.
+
+    Example: /api/execution/simulate?calibrated_prob=75&odds=1.55
+    """
+    implied = 100.0 / odds
+    edge = compute_edge(calibrated_prob, odds)
+    ev = compute_ev(calibrated_prob, odds)
+    kelly = compute_kelly(calibrated_prob, odds)
+
+    passes_filters = (
+        MIN_ODDS <= odds <= MAX_ODDS
+        and calibrated_prob >= MIN_CALIBRATED_PROB
+        and edge >= MIN_EDGE
+        and ev >= MIN_EV
+    )
+
+    return {
+        "calibrated_prob": calibrated_prob,
+        "odds": odds,
+        "implied_prob": round(implied, 1),
+        "edge": round(edge, 1),
+        "ev": round(ev, 3),
+        "ev_pct": round(ev * 100, 1),
+        "kelly_stake_pct": round(kelly, 2),
+        "passes_all_filters": passes_filters,
+        "verdict": "✅ EXECUTABLE" if passes_filters else "❌ REJECTED",
+        "rejection_reasons": [
+            r for r in [
+                f"odds {odds} outside [{MIN_ODDS}, {MAX_ODDS}]" if not (MIN_ODDS <= odds <= MAX_ODDS) else None,
+                f"prob {calibrated_prob}% < min {MIN_CALIBRATED_PROB}%" if calibrated_prob < MIN_CALIBRATED_PROB else None,
+                f"edge {edge:.1f}% < min {MIN_EDGE}%" if edge < MIN_EDGE else None,
+                f"EV {ev:.3f} < min {MIN_EV}" if ev < MIN_EV else None,
+            ] if r
+        ],
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# PHASE 4: LIVE ADAPTIVE PIPELINE — API Endpoints
+# ═══════════════════════════════════════════════════════════════════════
+
+@app.get("/api/live/status")
+def get_live_system_status():
+    """Get the status of the live adaptive pipeline."""
+    try:
+        from src.engine.live_updater import get_ingestion_stats
+        from src.db.database import get_db
+        conn = get_db()
+        stats = get_ingestion_stats(conn)
+        return {
+            "status": "active" if stats["total_matches"] > 0 else "cold_start",
+            "engine": "Live Adaptive Pipeline v1.0",
+            **stats,
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@app.get("/api/live/teams")
+def get_tracked_teams(league: str = None):
+    """Get all tracked team states with current ELO and form."""
+    try:
+        from src.db.team_state import get_all_team_states
+        from src.db.database import get_db
+        conn = get_db()
+        states = get_all_team_states(conn, league)
+        return {
+            "count": len(states),
+            "teams": [{
+                "team": s.team_name,
+                "league": s.league,
+                "venue": s.venue,
+                "elo": s.elo,
+                "attack_rating": s.attack_rating,
+                "defense_rating": s.defense_rating,
+                "rolling_scored": s.rolling_scored,
+                "rolling_conceded": s.rolling_conceded,
+                "form_last5": s.form_last5,
+                "win_streak": s.win_streak,
+                "matches_played": s.matches_played,
+                "rest_days": s.rest_days,
+                "last_match": s.last_match_date,
+            } for s in states],
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/live/team/{team_name}")
+def get_team_live_state(team_name: str, league: str = ""):
+    """Get detailed live state for a specific team."""
+    try:
+        from src.db.team_state import get_team_state as get_live_state
+        from src.db.database import get_db
+        conn = get_db()
+
+        results = {}
+        for venue in ["home", "away"]:
+            state = get_live_state(conn, team_name, league, venue)
+            if state:
+                results[venue] = {
+                    "elo": state.elo,
+                    "attack_rating": state.attack_rating,
+                    "defense_rating": state.defense_rating,
+                    "rolling_scored": state.rolling_scored,
+                    "rolling_conceded": state.rolling_conceded,
+                    "rolling_xg": state.rolling_xg,
+                    "rolling_xga": state.rolling_xga,
+                    "rolling_corners": state.rolling_corners,
+                    "rolling_cards": state.rolling_cards,
+                    "form_last5": state.form_last5,
+                    "form_last10": state.form_last10,
+                    "win_streak": state.win_streak,
+                    "unbeaten_streak": state.unbeaten_streak,
+                    "matches_last_14d": state.matches_last_14d,
+                    "rest_days": state.rest_days,
+                    "matches_played": state.matches_played,
+                    "last_match_date": state.last_match_date,
+                }
+
+        if not results:
+            return {"error": f"No live state found for '{team_name}'",
+                    "suggestion": "Visit Results page to ingest match data"}
+
+        return {"team": team_name, "league": league, "states": results}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/api/live/ingest")
+def manual_ingest_match(
+    match_id: str, match_date: str, league: str,
+    home_team: str, away_team: str,
+    home_goals: int, away_goals: int,
+    home_xg: float = None, away_xg: float = None,
+    home_corners: int = None, away_corners: int = None,
+    home_cards: int = None, away_cards: int = None,
+):
+    """Manually ingest a match result into the live pipeline."""
+    try:
+        from src.engine.live_updater import on_match_finished
+        from src.db.database import get_db
+        conn = get_db()
+        return on_match_finished(
+            conn=conn, match_id=match_id, match_date=match_date,
+            league=league, home_team=home_team, away_team=away_team,
+            home_goals=home_goals, away_goals=away_goals,
+            home_xg=home_xg, away_xg=away_xg,
+            home_corners=home_corners, away_corners=away_corners,
+            home_cards=home_cards, away_cards=away_cards,
+        )
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/live/elo-rankings")
+def get_elo_rankings(league: str = None):
+    """Get ELO rankings sorted by rating descending."""
+    try:
+        from src.db.database import get_db
+        conn = get_db()
+        query = """SELECT team_name, league, elo, rolling_scored, rolling_conceded,
+                          form_last5, win_streak, matches_played
+                   FROM team_state WHERE venue = 'home'"""
+        params = []
+        if league:
+            query += " AND league = ?"
+            params.append(league)
+        query += " ORDER BY elo DESC"
+        rows = conn.execute(query, params).fetchall()
+        return {
+            "count": len(rows),
+            "rankings": [{
+                "rank": i + 1, "team": r["team_name"], "league": r["league"],
+                "elo": r["elo"], "form_last5": r["form_last5"],
+                "matches_played": r["matches_played"],
+            } for i, r in enumerate(rows)],
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/live/match-history")
+def get_match_history_api(team: str = None, league: str = None, limit: int = 20):
+    """Get recent match history from the ingested database."""
+    try:
+        from src.db.database import get_db
+        conn = get_db()
+        query = "SELECT * FROM match_history WHERE 1=1"
+        params = []
+        if team:
+            query += " AND (home_team LIKE ? OR away_team LIKE ?)"
+            params.extend([f"%{team}%", f"%{team}%"])
+        if league:
+            query += " AND league = ?"
+            params.append(league)
+        query += " ORDER BY match_date DESC, id DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(query, params).fetchall()
+        return {
+            "count": len(rows),
+            "matches": [{
+                "match_id": r["match_id"], "date": r["match_date"],
+                "league": r["league"],
+                "home": r["home_team"], "away": r["away_team"],
+                "score": f"{r['home_goals']}-{r['away_goals']}",
+                "home_elo_change": round(r["home_elo_after"] - r["home_elo_before"], 1) if r["home_elo_after"] else None,
+                "away_elo_change": round(r["away_elo_after"] - r["away_elo_before"], 1) if r["away_elo_after"] else None,
+            } for r in rows],
+        }
+    except Exception as e:
+        return {"error": str(e)}

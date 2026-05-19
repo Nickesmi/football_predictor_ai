@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Loader2, AlertCircle, ShieldAlert, Cpu, ChevronDown, ChevronRight, Activity, Zap, Target, CornerUpRight, CreditCard, Trophy, Layers, Filter, BarChart3, TrendingUp, Shuffle, Crosshair, Crown, Shield } from 'lucide-react';
 
 const getBarColor = (pct) => {
@@ -25,6 +25,7 @@ const getSectionIcon = (secName) => {
     case "First Half": return <Activity className="w-4 h-4 text-violet-400" />;
     case "Second Half": return <Activity className="w-4 h-4 text-orange-400" />;
     case "Corners": return <CornerUpRight className="w-4 h-4 text-blue-400" />;
+    case "Handicaps": return <Zap className="w-4 h-4 text-fuchsia-400" />;
     case "Cards": return <CreditCard className="w-4 h-4 text-amber-400" />;
     case "Result": return <Trophy className="w-4 h-4 text-emerald-400" />;
     default: return <BarChart3 className="w-4 h-4 text-slate-400" />;
@@ -38,6 +39,7 @@ const getSectionGradient = (secName) => {
     case "First Half": return "from-violet-500/10 to-transparent";
     case "Second Half": return "from-orange-500/10 to-transparent";
     case "Corners": return "from-blue-500/10 to-transparent";
+    case "Handicaps": return "from-fuchsia-500/10 to-transparent";
     case "Cards": return "from-amber-500/10 to-transparent";
     case "Result": return "from-emerald-500/10 to-transparent";
     default: return "from-white/5 to-transparent";
@@ -52,6 +54,10 @@ const TIER_STYLES = {
   4: { border: "border-blue-500/20", glow: "", accent: "text-blue-400", bg: "from-blue-500/5 to-transparent", badge: "bg-blue-500/10 text-blue-400", icon: "text-blue-400", label: "Tier 4", desc: "Moderate-High" },
   5: { border: "border-violet-500/15", glow: "", accent: "text-violet-400", bg: "from-violet-500/5 to-transparent", badge: "bg-violet-500/10 text-violet-400", icon: "text-violet-400", label: "Tier 5", desc: "Moderate" },
   6: { border: "border-slate-500/15", glow: "", accent: "text-slate-400", bg: "from-slate-500/5 to-transparent", badge: "bg-slate-500/10 text-slate-400", icon: "text-slate-400", label: "Tier 6", desc: "Standard" },
+  7: { border: "border-stone-500/15", glow: "", accent: "text-stone-400", bg: "from-stone-500/5 to-transparent", badge: "bg-stone-500/10 text-stone-400", icon: "text-stone-400", label: "Tier 7", desc: "Marginal" },
+  8: { border: "border-zinc-500/15", glow: "", accent: "text-zinc-400", bg: "from-zinc-500/5 to-transparent", badge: "bg-zinc-500/10 text-zinc-400", icon: "text-zinc-400", label: "Tier 8", desc: "Low Confidence" },
+  9: { border: "border-neutral-500/15", glow: "", accent: "text-neutral-400", bg: "from-neutral-500/5 to-transparent", badge: "bg-neutral-500/10 text-neutral-400", icon: "text-neutral-400", label: "Tier 9", desc: "Speculative" },
+  10: { border: "border-gray-500/15", glow: "", accent: "text-gray-500", bg: "from-gray-500/5 to-transparent", badge: "bg-gray-500/10 text-gray-500", icon: "text-gray-500", label: "Tier 10", desc: "Wildcard" },
 };
 
 /* ── Score Prediction Card ──────────────────── */
@@ -122,8 +128,9 @@ const ScorePrediction = ({ scorePrediction, dominance, homeName, awayName, poiss
 
       {/* Dominance Insights */}
       {dominance && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {[{ data: corners, label: "Corner Dominance", icon: <CornerUpRight className="w-4 h-4 text-blue-400" />, colorA: "bg-blue-400", colorB: "bg-orange-400", accent: "text-blue-400" },
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {[{ data: { home_pct: poisson?.result?.home_win || 0, away_pct: poisson?.result?.away_win || 0, expected_home: "Win", expected_total: `Draw: ${poisson?.result?.draw || 0}%`, expected_away: "Win" }, label: "Win Probability", icon: <Trophy className="w-4 h-4 text-emerald-400" />, colorA: "bg-emerald-400", colorB: "bg-purple-400", accent: "text-emerald-400" },
+            { data: corners, label: "Corner Dominance", icon: <CornerUpRight className="w-4 h-4 text-blue-400" />, colorA: "bg-blue-400", colorB: "bg-orange-400", accent: "text-blue-400" },
             { data: cards, label: "Card Dominance", icon: <CreditCard className="w-4 h-4 text-amber-400" />, colorA: "bg-amber-400", colorB: "bg-rose-400", accent: "text-amber-400" }
           ].map(({ data, label, icon, colorA, colorB, accent }) => (
             <div key={label} className="bg-[#111318] border border-white/5 rounded-xl p-4 relative overflow-hidden">
@@ -147,9 +154,9 @@ const ScorePrediction = ({ scorePrediction, dominance, homeName, awayName, poiss
                 <div className={`h-full ${colorB} rounded-r-full`} style={{ width: `${data.away_pct}%` }} />
               </div>
               <div className="flex justify-between mt-2">
-                <span className="text-[9px] text-slate-600 font-mono">Exp: {data.expected_home}</span>
-                <span className="text-[9px] text-slate-600 font-mono">Total: {data.expected_total}</span>
-                <span className="text-[9px] text-slate-600 font-mono">Exp: {data.expected_away}</span>
+                <span className="text-[9px] text-slate-600 font-mono">{typeof data.expected_home === 'string' ? data.expected_home : `Exp: ${data.expected_home}`}</span>
+                <span className="text-[9px] text-slate-600 font-mono">{typeof data.expected_total === 'string' ? data.expected_total : `Total: ${data.expected_total}`}</span>
+                <span className="text-[9px] text-slate-600 font-mono">{typeof data.expected_away === 'string' ? data.expected_away : `Exp: ${data.expected_away}`}</span>
               </div>
             </div>
           ))}
@@ -174,7 +181,7 @@ const TierCard = ({ tier }) => {
           <span className={`text-[9px] font-bold px-2 py-0.5 rounded-sm uppercase tracking-wider ${style.badge}`}>{style.desc}</span>
         </div>
         <div className="flex items-center gap-2">
-          <Shuffle className="w-3 h-3 text-slate-600" />
+          <Shuffle className="w-3 h-3 text-slate-500 opacity-60" />
           <span className="text-[9px] text-slate-500 font-mono">{tier.min_probability}%–{tier.max_probability}%</span>
         </div>
       </div>
@@ -209,10 +216,19 @@ const TierCard = ({ tier }) => {
 
 const MatchDetail = ({ fixture, analysis, loading, error }) => {
   const [activeLayer, setActiveLayer] = useState('layer2');
+
+  useEffect(() => {
+    setActiveLayer(Math.random() > 0.5 ? 'layer1' : 'layer2');
+  }, [fixture?.id]);
   const [expandedSections, setExpandedSections] = useState({
     "Goals": true, "First Half": true, "Second Half": true, "Team Goals": true,
-    "Result": true, "Corners": true, "Cards": true
+    "Result": true, "Handicaps": true, "Corners": true, "Cards": true
   });
+
+  const sectionOrder = useMemo(() => {
+    const sections = ["Goals", "First Half", "Second Half", "Team Goals", "Result", "Handicaps", "Corners", "Cards"];
+    return sections.sort(() => Math.random() - 0.5);
+  }, [fixture?.id]);
 
   const toggleSection = (sec) => {
     setExpandedSections(prev => ({ ...prev, [sec]: !prev[sec] }));
@@ -223,7 +239,7 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
       <div className="flex flex-col items-center justify-center h-full">
         <Loader2 className="w-10 h-10 animate-spin text-emerald-500 mb-4" />
         <p className="text-emerald-400/60 text-xs tracking-[0.2em] uppercase animate-pulse">Computing Modular Analysis...</p>
-        <p className="text-slate-600 text-[10px] tracking-widest mt-2 uppercase">7 modules + score estimation + 6 tiers</p>
+        <p className="text-slate-600 text-[10px] tracking-widest mt-2 uppercase">7 modules + score estimation + 10 tiers</p>
       </div>
     );
   }
@@ -249,12 +265,11 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
   const homeName = fixture.home_team.name;
   const awayName = fixture.away_team.name;
 
-  const sectionOrder = ["Goals", "First Half", "Second Half", "Team Goals", "Result", "Corners", "Cards"];
   const totalFullMarkets = Object.values(fullAnalysis).reduce((sum, items) => sum + items.length, 0);
 
   return (
     <div className="max-w-4xl mx-auto p-4 sm:p-6 animate-fade-in text-slate-200">
-      
+
       {/* ── Match Header ───────────────────────── */}
       <div className="bg-[#111318] border border-white/5 rounded-2xl p-6 mb-6 shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full bg-emerald-500/5 blur-[80px] pointer-events-none" />
@@ -290,7 +305,7 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
         <div className="h-4 w-px bg-white/10" />
         <span className="text-[10px] text-yellow-400 uppercase tracking-widest font-bold flex items-center gap-1">
           <Shield className="w-3 h-3" />
-          6 TIERS × 6 PICKS
+          10 TIERS × 6 PICKS
         </span>
         <div className="h-4 w-px bg-white/10" />
         <span className="text-[10px] text-emerald-400 uppercase tracking-widest font-bold flex items-center gap-1">
@@ -306,11 +321,10 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
       <div className="flex gap-2 mb-6">
         <button
           onClick={() => setActiveLayer('layer2')}
-          className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-all duration-200 ${
-            activeLayer === 'layer2'
-              ? 'bg-gradient-to-r from-yellow-500/10 to-emerald-500/10 border-yellow-500/40 shadow-[0_0_20px_rgba(234,179,8,0.08)]'
-              : 'bg-[#111318] border-white/5 hover:border-white/10'
-          }`}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-all duration-200 ${activeLayer === 'layer2'
+            ? 'bg-gradient-to-r from-yellow-500/10 to-emerald-500/10 border-yellow-500/40 shadow-[0_0_20px_rgba(234,179,8,0.08)]'
+            : 'bg-[#111318] border-white/5 hover:border-white/10'
+            }`}
         >
           <Shield className={`w-4 h-4 ${activeLayer === 'layer2' ? 'text-yellow-400' : 'text-slate-500'}`} />
           <div className="text-left">
@@ -318,21 +332,20 @@ const MatchDetail = ({ fixture, analysis, loading, error }) => {
               Layer 2 — Tiered Picks
             </span>
             <span className={`text-[9px] ${activeLayer === 'layer2' ? 'text-yellow-400/70' : 'text-slate-600'}`}>
-              6 tiers × 6 picks • shuffled within
+              10 tiers shuffled • odds randomized
             </span>
           </div>
           {activeLayer === 'layer2' && (
-            <span className="bg-yellow-500/20 text-yellow-400 text-[10px] font-bold px-2 py-0.5 rounded-md ml-auto">36</span>
+            <span className="bg-yellow-500/20 text-yellow-400 text-[10px] font-bold px-2 py-0.5 rounded-md ml-auto">60</span>
           )}
         </button>
 
         <button
           onClick={() => setActiveLayer('layer1')}
-          className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-all duration-200 ${
-            activeLayer === 'layer1'
-              ? 'bg-gradient-to-r from-blue-500/15 to-violet-500/10 border-blue-500/40 shadow-[0_0_20px_rgba(59,130,246,0.1)]'
-              : 'bg-[#111318] border-white/5 hover:border-white/10'
-          }`}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-all duration-200 ${activeLayer === 'layer1'
+            ? 'bg-gradient-to-r from-blue-500/15 to-violet-500/10 border-blue-500/40 shadow-[0_0_20px_rgba(59,130,246,0.1)]'
+            : 'bg-[#111318] border-white/5 hover:border-white/10'
+            }`}
         >
           <Layers className={`w-4 h-4 ${activeLayer === 'layer1' ? 'text-blue-400' : 'text-slate-500'}`} />
           <div className="text-left">
