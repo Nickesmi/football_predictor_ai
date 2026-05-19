@@ -22,7 +22,7 @@ from src.engine.probability_engine import estimate_probabilities
 from src.engine.market_value import find_value, filter_positive_edge
 from src.engine.risk_control import get_league_profile, score_confidence, apply_risk_filter
 from src.engine.calibration import ProbabilityCalibrator
-from src.data.odds_fetcher import fetch_and_store_odds, get_api_key
+
 from src.models.pick import Pick, assign_grade
 
 logger = logging.getLogger("football_predictor")
@@ -65,12 +65,20 @@ def run_pipeline(
 
     # ── Agent 2: Odds Fetcher ────────────────────────────────────
     # Fetch real bookmaker odds if API key is available
+    from src.data.odds_fetcher import TheOddsAPIProvider, get_api_key, LEAGUE_TO_SPORT
     odds_status = "no_api_key"
     if get_api_key():
         try:
             league_ids = list(set(m.get("league_id", 0) for m in fixtures))
-            odds_result = fetch_and_store_odds(conn, league_ids)
-            odds_status = f"fetched:{sum(odds_result.values())}_matches"
+            provider = TheOddsAPIProvider(conn)
+            fetched = 0
+            for lid in league_ids:
+                sport_key = LEAGUE_TO_SPORT.get(lid)
+                if sport_key:
+                    events = provider.fetch_events(sport_key)
+                    if events:
+                        fetched += 1
+            odds_status = f"fetched:{fetched}_leagues"
         except Exception as e:
             logger.error(f"Odds fetch failed: {e}")
             odds_status = f"error:{e}"

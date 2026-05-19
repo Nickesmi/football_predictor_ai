@@ -23,7 +23,6 @@ import numpy as np
 import pandas as pd
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.model_selection import StratifiedKFold, cross_val_score
-from xgboost import XGBClassifier
 
 from src.config import logger
 from src.ml.feature_builder import FEATURE_COLUMNS
@@ -36,6 +35,16 @@ if getattr(sys, 'frozen', False):
     DEFAULT_MODEL_DIR = Path(sys._MEIPASS) / "models"
 else:
     DEFAULT_MODEL_DIR = Path(__file__).parent.parent.parent / "models"
+
+
+def get_xgb():
+    """Lazy-load XGBoost to prevent startup crashes in frozen environments."""
+    try:
+        from xgboost import XGBClassifier
+        return XGBClassifier
+    except ImportError:
+        logger.error("XGBoost is not available.")
+        return None
 
 
 class XGBoostTrainer:
@@ -69,6 +78,10 @@ class XGBoostTrainer:
             logger.info("Training XGBoost for '%s' (positive rate: %.1f%%)", target, y.mean() * 100)
 
             # Base XGBoost classifier
+            XGBClassifier = get_xgb()
+            if XGBClassifier is None:
+                raise RuntimeError("XGBoost is not available.")
+
             base_model = XGBClassifier(
                 n_estimators=200,
                 max_depth=5,

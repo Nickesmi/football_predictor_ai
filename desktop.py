@@ -10,12 +10,20 @@ import sys
 import threading
 import time
 import socket
+import shutil
 import urllib.request
 import logging
 
 # ── Logging setup (before any imports that use it) ───────────────────────────
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("desktop")
+
+# ── PRELOAD NATIVE LIBRARIES FIRST ───────────────────────────────────────────
+try:
+    from src.ml.preload import preload_xgboost
+    preload_xgboost()
+except ImportError:
+    pass
 
 
 def get_base_path() -> str:
@@ -64,11 +72,16 @@ def start_server(port: int) -> None:
 
 def start_scheduler() -> None:
     """Lightweight background scheduler for future cron tasks."""
-    log.info("Background scheduler started.")
+    from src.engine.odds_scanner import scan_live_odds
+    
+    log.info("Background scheduler started. Scanning live odds every 5 minutes.")
     while True:
         try:
-            time.sleep(300)  # 5-minute heartbeat
-            log.debug("Scheduler heartbeat.")
+            # Wait first to let server boot cleanly
+            time.sleep(300)  
+            log.info("Running scheduled live odds scan...")
+            stats = scan_live_odds()
+            log.info(f"Scan complete: {stats['matches_scanned']} matches, {len(stats['executable_bets'])} bets found.")
         except Exception as e:
             log.error(f"Scheduler error: {e}")
             time.sleep(60)

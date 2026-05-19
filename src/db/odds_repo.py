@@ -5,13 +5,17 @@ Repository for odds snapshot operations.
 import sqlite3
 from typing import Optional
 
-
 def insert_odds(conn: sqlite3.Connection, snapshot: dict) -> None:
     """Insert an odds snapshot."""
+    # Ensure timestamp is provided
+    if "timestamp" not in snapshot:
+        from datetime import datetime, timezone
+        snapshot["timestamp"] = datetime.now(timezone.utc).isoformat()
+        
     conn.execute(
         """INSERT INTO odds_snapshots
-           (match_id, market, selection, odds, bookmaker, is_opening)
-           VALUES (:match_id, :market, :selection, :odds, :bookmaker, :is_opening)""",
+           (match_id, market, selection, odds, bookmaker, is_opening, implied_probability, timestamp)
+           VALUES (:match_id, :market, :selection, :odds, :bookmaker, :is_opening, :implied_probability, :timestamp)""",
         snapshot,
     )
     conn.commit()

@@ -14,7 +14,7 @@ import ssl
 import urllib.request
 from datetime import date, datetime, timezone
 from typing import Optional, Union
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import logger, APIFOOTBALL_API_KEY
@@ -27,8 +27,10 @@ from src.ml.predictor import XGBoostPredictor
 from src.ml.poisson_model import PoissonGoalModel
 from src.ml.team_stats_db import get_team_stats
 from src.ml.feature_builder import TeamProfile
+from src.engine.odds_scanner import scan_live_odds
 
-app = FastAPI(title="Football Predictor AI", version="5.0.0")
+# ── Instantiate App ──────────────────────────────────────────────────────────
+app = FastAPI(title="Football Predictor AI API", version="5.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,6 +39,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok", "version": "5.0"}
+
+@app.get("/api/live/scan")
+def trigger_live_scan():
+    """Trigger a live odds scan to evaluate executable bets."""
+    try:
+        return scan_live_odds()
+    except Exception as e:
+        logger.error(f"Live scan failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Pipeline components
 fetcher = APIFootballFetcher()
@@ -1959,8 +1975,7 @@ def _evaluate_pick_result(
 # ═══════════════════════════════════════════════════════════════════════
 
 from src.engine.calibration import ProbabilityCalibrator, ConfidenceBucketer
-from src.data.odds_fetcher import fetch_and_store_odds, get_api_key as get_odds_key
-
+from src.data.odds_fetcher import TheOddsAPIProvider, get_api_key as get_odds_key, LEAGUE_TO_SPORT
 
 @app.get("/api/analytics/calibration")
 def get_calibration_report():
@@ -1982,6 +1997,7 @@ def get_confidence_buckets():
     return {"buckets": bucketer.analyze(conn)}
 
 
+
 @app.post("/api/odds/fetch")
 def trigger_odds_fetch():
     """Manually trigger odds fetch from The Odds API."""
@@ -1989,11 +2005,17 @@ def trigger_odds_fetch():
         return {"error": "ODDS_API_KEY not set in .env", "status": "failed"}
 
     conn = get_db()
-    result = fetch_and_store_odds(conn)
+    provider = TheOddsAPIProvider(conn)
+    fetched = 0
+    for sport_key in LEAGUE_TO_SPORT.keys():
+        events = provider.fetch_events(sport_key)
+        if events:
+            fetched += 1
+            
     count = conn.execute("SELECT COUNT(*) FROM odds_snapshots").fetchone()[0]
     return {
         "status": "ok",
-        "leagues_fetched": result,
+        "leagues_fetched": fetched,
         "total_odds_in_db": count,
     }
 

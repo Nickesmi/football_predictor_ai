@@ -32,10 +32,18 @@ command -v npm     >/dev/null 2>&1 || error "npm not found. Install Node.js from
 success "Python $(python3 --version) ✓"
 success "npm $(npm --version) ✓"
 
-# ── Step 2: Install Python packaging tools ────────────────
-info "Installing PyInstaller and PyWebView..."
-pip3 install pywebview pyinstaller --quiet
-success "PyInstaller and PyWebView installed."
+# ── Step 2: Create/activate virtual environment ──────────
+info "Setting up Python virtual environment..."
+python3 -m venv .venv
+source .venv/bin/activate
+success "Virtual environment ready."
+
+# ── Step 3: Install Python packaging tools ────────────────
+info "Installing project dependencies, PyInstaller and PyWebView..."
+pip install --upgrade pip --quiet
+pip install -r requirements.txt --quiet
+pip install pywebview pyinstaller --quiet
+success "All Python dependencies installed."
 
 # ── Step 3: Build React frontend ──────────────────────────
 info "Building React frontend..."
@@ -55,7 +63,7 @@ mkdir -p models
 
 # ── Step 6: Run PyInstaller ───────────────────────────────
 info "Bundling app with PyInstaller (this takes 2–5 minutes)..."
-python3 -m PyInstaller football_predictor.spec --clean --noconfirm
+python -m PyInstaller football_predictor.spec --clean --noconfirm
 
 # ── Step 7: Verify output ────────────────────────────────
 APP_PATH="dist/Football Predictor AI.app"

@@ -62,6 +62,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             selection       TEXT NOT NULL,
             odds            REAL NOT NULL,
             bookmaker       TEXT DEFAULT 'sofascore',
+            implied_probability REAL,
             timestamp       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             is_opening      BOOLEAN DEFAULT 1
         );

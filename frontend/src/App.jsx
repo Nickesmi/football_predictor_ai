@@ -119,6 +119,25 @@ function App() {
     );
   }
 
+  const [isScanning, setIsScanning] = useState(false);
+
+  const handleScanLiveOdds = async () => {
+    if (isScanning) return;
+    setIsScanning(true);
+    try {
+      const res = await fetch(`${API}/live/scan`);
+      if (!res.ok) throw new Error("Live scan failed");
+      const data = await res.json();
+      alert(`Scan Complete!\nMatches Scanned: ${data.matches_scanned}\nSnapshots Saved: ${data.odds_snapshots_saved}\nExecutable Bets: ${data.executable_bets.length}`);
+      console.log("Executable Bets:", data.executable_bets);
+      console.log("Rejections:", data.rejections);
+    } catch (e) {
+      alert(`Scan Error: ${e.message}`);
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
   return (
     <div className="h-screen flex flex-col overflow-hidden">
       {/* ── Top Bar ─────────────────────────────────────── */}
@@ -128,6 +147,18 @@ function App() {
           FOOTBALL<span className="text-gold-500">PREDICT</span>
         </span>
         <div className="flex-1" />
+        <button
+          onClick={handleScanLiveOdds}
+          disabled={isScanning}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/15 border border-blue-500/30 text-blue-400 hover:bg-blue-500/25 transition-all text-xs font-bold disabled:opacity-50"
+        >
+          {isScanning ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <Target className="w-3.5 h-3.5" />
+          )}
+          {isScanning ? "Scanning..." : "Scan Live Odds"}
+        </button>
         <button
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gold-500/15 border border-gold-500/30 text-gold-500 text-xs font-bold"
         >
