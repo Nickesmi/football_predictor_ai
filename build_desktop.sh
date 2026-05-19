@@ -72,7 +72,17 @@ if [ ! -d "$APP_PATH" ]; then
 fi
 success "App bundle created: $APP_PATH"
 
-# ── Step 8: Create DMG (optional, requires create-dmg) ───
+# ── Step 8: Code Signing .app ────────────────────────────
+if [ -n "$APPLE_DEV_IDENTITY" ]; then
+    info "Codesigning .app with identity: $APPLE_DEV_IDENTITY..."
+    xattr -cr "$APP_PATH"
+    codesign --force --options runtime --deep --sign "$APPLE_DEV_IDENTITY" "$APP_PATH"
+    success "App bundle signed."
+else
+    warn "No APPLE_DEV_IDENTITY set. Skipping .app codesigning."
+fi
+
+# ── Step 9: Create DMG (optional, requires create-dmg) ───
 if command -v create-dmg >/dev/null 2>&1; then
     info "Creating .dmg installer..."
     rm -f "Football-Predictor-AI.dmg"
@@ -88,12 +98,34 @@ if command -v create-dmg >/dev/null 2>&1; then
       "dist/" \
     && success "DMG created: Football-Predictor-AI.dmg" \
     || warn "DMG creation had an issue (the .app still works fine)."
+    
+    # ── Step 10: Notarization & Stapling ───────────────────
+    if [ -n "$APPLE_DEV_IDENTITY" ] && [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+        DMG_PATH="Football-Predictor-AI.dmg"
+        info "Codesigning $DMG_PATH..."
+        codesign --force --sign "$APPLE_DEV_IDENTITY" "$DMG_PATH"
+        
+        info "Notarizing $DMG_PATH (this may take several minutes)..."
+        xcrun notarytool submit "$DMG_PATH" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+        success "Notarization complete."
+        
+        info "Stapling notarization ticket to $DMG_PATH..."
+        xcrun stapler staple "$DMG_PATH"
+        success "Stapling complete. App is fully production-ready!"
+    else
+        warn "Missing Notarization credentials. Skipping notarization and stapling."
+        warn "Set APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID to enable."
+    fi
 else
     warn "create-dmg not installed. Skipping DMG. Install with: brew install create-dmg"
     info "Your app is ready at: $APP_PATH"
 fi
 
-# ── Step 9: Copy to Desktop ──────────────────────────────
+# ── Step 11: Copy to Desktop ──────────────────────────────
 DESKTOP="$HOME/Desktop"
 info "Copying app to Desktop..."
 cp -R "$APP_PATH" "$DESKTOP/" && success "Copied to: $DESKTOP/Football Predictor AI.app"
