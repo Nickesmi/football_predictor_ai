@@ -77,13 +77,15 @@ if command -v create-dmg >/dev/null 2>&1; then
     info "Creating .dmg installer..."
     rm -f "Football-Predictor-AI.dmg"
     create-dmg \
-        --volname "Football Predictor AI" \
-        --window-pos 200 120 \
-        --window-size 600 400 \
-        --icon-size 100 \
-        --app-drop-link 450 185 \
-        "Football-Predictor-AI.dmg" \
-        "$APP_PATH" \
+      --volname "Football Predictor AI" \
+      --window-pos 200 120 \
+      --window-size 800 400 \
+      --icon-size 100 \
+      --icon "Football Predictor AI.app" 200 190 \
+      --hide-extension "Football Predictor AI.app" \
+      --app-drop-link 600 185 \
+      "Football-Predictor-AI.dmg" \
+      "dist/" \
     && success "DMG created: Football-Predictor-AI.dmg" \
     || warn "DMG creation had an issue (the .app still works fine)."
 else
