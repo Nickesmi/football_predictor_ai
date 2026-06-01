@@ -13,3 +13,9 @@ pytest-cov>=4.1.0
 fastapi>=0.110.0
 uvicorn[standard]>=0.28.0
 pydantic>=2.6.0
+
+# ML / statistical models (imported by src/ml and api/main.py)
+numpy>=1.26.0
+pandas>=2.2.0
+scikit-learn>=1.4.0
+xgboost>=2.0.0
