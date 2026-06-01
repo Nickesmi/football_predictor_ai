@@ -56,7 +56,13 @@ class APIFootballClient:
     ):
         self._api_key = api_key or APIFOOTBALL_API_KEY
         self._host = host or APIFOOTBALL_HOST
-        self._base_url = self.BASE_URL.format(host=self._host)
+        # RapidAPI hosts are unversioned and need the /v3 path prefix; the direct
+        # api-sports.io host is already versioned (v3.football.api-sports.io), so
+        # adding /v3 again would produce a 404 (/v3/v3/...).
+        if "rapidapi" in self._host.lower():
+            self._base_url = f"https://{self._host}/v3"
+        else:
+            self._base_url = f"https://{self._host}"
         self._cache_dir = cache_dir or CACHE_DIR
         self._cache_ttl = cache_ttl
         self._min_interval = 60.0 / max(rate_limit, 1)

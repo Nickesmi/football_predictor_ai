@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import urllib.request
 from datetime import date, datetime, timezone
 from fastapi import FastAPI, HTTPException
@@ -306,6 +307,65 @@ def _fetch_sofascore_events(date_str: str) -> list[dict]:
         return []
 
 
+def _apifootball_to_fixture(item: dict) -> dict | None:
+    """Map an API-Football v3 /fixtures entry to the frontend fixture shape."""
+    fix = item.get("fixture", {})
+    league = item.get("league", {})
+    teams = item.get("teams", {})
+    goals = item.get("goals", {})
+    home = teams.get("home", {})
+    away = teams.get("away", {})
+
+    if not home.get("name") or not away.get("name"):
+        return None
+
+    short_status = fix.get("status", {}).get("short", "")
+    iso = fix.get("date", "") or ""
+    date_part = iso[:10]
+    time_part = "TBD"
+    try:
+        time_part = datetime.fromisoformat(iso).strftime("%H:%M")
+    except Exception:
+        pass
+
+    return {
+        "id": str(fix.get("id", "")),
+        "date": date_part,
+        "time": time_part,
+        "status": short_status,
+        "home_goals": goals.get("home"),
+        "away_goals": goals.get("away"),
+        "league": {
+            "id": str(league.get("id", "")),
+            "name": league.get("name", ""),
+            "country": league.get("country", ""),
+            "logo": league.get("logo", ""),
+        },
+        "home_team": {
+            "id": str(home.get("id", "")),
+            "name": home.get("name", ""),
+            "logo": home.get("logo", ""),
+        },
+        "away_team": {
+            "id": str(away.get("id", "")),
+            "name": away.get("name", ""),
+            "logo": away.get("logo", ""),
+        },
+    }
+
+
+def _fetch_apifootball_fixtures(date_str: str) -> list[dict]:
+    """Fetch fixtures for a date from API-Football and map to frontend shape."""
+    try:
+        raw = fetcher._client.get("fixtures", date=date_str)
+    except Exception as e:
+        logger.error(f"API-Football fixtures fetch failed: {e}")
+        return []
+    fixtures = [m for m in (_apifootball_to_fixture(f) for f in raw.get("response", [])) if m]
+    fixtures.sort(key=lambda f: f["time"])
+    return fixtures
+
+
 def _sofascore_to_fixture(event: dict) -> dict:
     tournament = event.get("tournament", {})
     unique_tournament = tournament.get("uniqueTournament", {})
@@ -367,7 +427,7 @@ def _sofascore_to_fixture(event: dict) -> dict:
 def health_check():
     return {
         "status": "ok",
-        "data_source": "sofascore",
+        "data_source": "api-football" if APIFOOTBALL_API_KEY else "sofascore",
         "analysis_mode": "live" if APIFOOTBALL_API_KEY else "per_match_poisson",
         "engine": "Hybrid Poisson Goals + Corners + Cards v5.0",
         "leagues": list(TOP_LEAGUES.values()),
@@ -381,6 +441,13 @@ def get_supported_leagues():
 
 @app.get("/api/fixtures/{date_str}")
 def get_fixtures_by_date(date_str: str):
+    if APIFOOTBALL_API_KEY:
+        fixtures = _fetch_apifootball_fixtures(date_str)
+        if fixtures:
+            logger.info(f"Returning {len(fixtures)} api-football fixtures for {date_str}")
+            return fixtures
+        logger.warning(f"No api-football fixtures for {date_str}; falling back to SofaScore")
+
     events = _fetch_sofascore_events(date_str)
     if not events:
         logger.warning(f"No events from SofaScore for {date_str}")
@@ -413,13 +480,13 @@ def analyze_match(
     """Per-match prediction. Every match gets UNIQUE probabilities."""
     home_name = home or "Unknown Home"
     away_name = away or "Unknown Away"
-    
-    if not APIFOOTBALL_API_KEY:
+
+    def _per_match_engine():
         logger.info(f"Per-match engine: {home_name} vs {away_name} [{league}]")
         analysis = _compute_match_analysis(
-            home_name=home_name, 
-            away_name=away_name, 
-            league_name=league
+            home_name=home_name,
+            away_name=away_name,
+            league_name=league,
         )
         analysis["match"] = {
             "home_team": home_name,
@@ -430,8 +497,16 @@ def analyze_match(
         }
         return analysis
 
+    # The deep live statistical pipeline is opt-in (heavy on API quota and only
+    # works for finished-season history). Default to the reliable per-match engine.
+    use_live = bool(APIFOOTBALL_API_KEY) and os.getenv(
+        "USE_LIVE_API_ANALYSIS", ""
+    ).lower() in ("1", "true", "yes")
+    if not use_live:
+        return _per_match_engine()
+
     try:
-        raw_data = fetcher.client.get("/fixtures", params={"id": int(fixture_id)})
+        raw_data = fetcher._client.get("fixtures", id=int(fixture_id))
         response = raw_data.get("response", [])
         if not response:
             raise HTTPException(status_code=404, detail=f"Fixture {fixture_id} not found.")
@@ -457,8 +532,11 @@ def analyze_match(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error analyzing fixture {fixture_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.warning(
+            f"Live analysis failed for fixture {fixture_id}, "
+            f"falling back to per-match engine: {e}"
+        )
+        return _per_match_engine()
 
 
 # ── Results Verification ──────────────────────────
